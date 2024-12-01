@@ -1,0 +1,12 @@
+CDMSdata
+data
+__pycache__
+.ipynb_checkpoints/
+*~
+*.bak
+*.eps
+*.gif
+*.png
+*.txt
+#*
+.#*
