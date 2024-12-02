@@ -7,6 +7,7 @@
 # 20231210  Adapted from Warren Perry's trace_fitter.ipynb notebook
 # 20240110  Adding support for FET traces, RDF input instead of root_numpy
 # 20240115  Add diagnostic output, improve TES vs. FET configurations
+# 20241201  Replace traces_rdf with new traceReader class; compute Ceff for FET
 
 def usage():
     print("""
@@ -22,14 +23,15 @@ Options: -d <det>   Detector type name (iZIP5, NF-C, etc.)
          -s <type>  Sensor type (TES or FET)
          -h         [Optional] Display this usage information
          -p         [Optional] Generate plots of fit results
-         -v         [Optional] Verbose output (not yet implemented!)
+         -v         [Optional] Verbose output
                       
 Requires: Numpy, Matplotlib, SciPy, ROOT""")
 
 ### CONFIGURATION ###
 
-import traces_rdf
+import traceReader
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 import os, sys
@@ -46,7 +48,6 @@ def printVerbose(string):
 def setVerbose(vb=True):        # To set the global from outside
     global verbose
     verbose = vb
-
 
 ### PRIMARY FUNCTIONS ###
 
@@ -75,7 +76,11 @@ def traceFit_TES(file, detname="", event=0, channel=0, doplot=False):
        fit for shape"""
     printVerbose("traceFit_TES()")
 
-    bins, trace, I0, PhononE = traces_rdf.getTES(file, event, channel)
+    reader   = traceReader(file, verbose)
+    bins     = reader.timeBins("TES", channel)
+    trace    = reader.TES(event, channel)
+    I0       = reader.TES_I0(event, channel)
+    PhononE  = reader.getPhononE(event)
     IversusE = max(trace)/PhononE
     
     #### Obtain figures of merit measurements for trace and template ####
@@ -84,9 +89,9 @@ def traceFit_TES(file, detname="", event=0, channel=0, doplot=False):
         trace_plots(detname,"TES",channel,bins,trace,TESshape(bins,*results))
     
     a, tR, tF, offset = results            # Unroll results for reporting
-    print(f'# {titleName} shape parameters (to generate templates)')
+    print(f'#  shape parameters (to generate templates)')
     print(f'I0\t\t{I0:.4e} microampere')
-    print(f'IversusE\t{max(trace)/PhononE:.4e} microampere/eV')
+    print(f'IversusE\t{IversusE:.4e} microampere/eV')
     print(f'riseTime\t{tR:.4e} us')
     print(f'fallTime\t{tF:.4e} us')
     print(f'Offset  \t{offset:.4e} us')
@@ -95,21 +100,23 @@ def traceFit_FET(file, detname="", event=0, channel=0, doplot=False):
     """Get specified FET trace (event and channel) from DMC file, fit for shape"""
     printVerbose("traceFit_FET")
 
-    titleName = detname if detname else "Trace"
-    
-    bins, trace, ChargeQ = traces_rdf.getFET(file, event, channel)
+    reader  = traceReader(file, verbose)
+    bins    = reader.timeBins("FET", channel)
+    trace   = reader.FET(evemt, channel)
+    ChargeQ = reader.getChargeQ(event)
+    Ceff    = ChargeQ*1.60218e-4 / max(trace)	#  = Q/V, pF = 1e12 * coulomb/volt
 
     #### Obtain figures of merit measurements for trace and template ####
-    results = trace_fitting(bins, trace, FETshape, guessFET, False)    # Don't apply parameter bounds
+    results = trace_fitting(bins, trace, FETshape, guessFET, False)
     if doplot:
         trace_plots(detname,"FET",channel,bins,trace,FETshape(bins,*results))
 
     a, invTd, invTr, offset = results      # Unroll results for reporting
-    print(f'# {titleName} shape parameters (to generate templates)')
-    print(f'decayRate   \t{invTd:.4e}/us => decayTime\t{1./invTd:.4e} us')
-    print(f'recoveryRate\t{invTr:.4e}/us => recoveryTime\t{1./invTr:.4e} us')
+    print(f'# FET {detname} shape parameters (to generate templates)')
+    print(f'templateCeff\t{Ceff:.4e} pF')
+    print(f'decayTime   \t{1./invTd:.4e} us\t# decayRate {invTd:.4e}/us')
+    print(f'recoveryTime\t{1./invTr:.4e} us\t# recoveryRate {invTr:.4e}/us')
     print(f'Offset      \t{offset:.4e} us')
-
             
 
 ### IDEALIZED PULSE SHAPES FOR FITTING ###
@@ -273,7 +280,8 @@ def trace_plots(detname, sensor, channel, bins, trace, fitshape):
     printVerbose(f"tracePlots(detname='{detname}', bins, trace, fitshape)")
     
     titleName = detname if detname else "Trace"
-    template = traces_rdf.getTemplate(detname, channel, sensor)
+
+    template = load_template(detname, channel, sensor)
     
     trace_overlay(titleName, sensor, bins, trace, fitshape, template)
     plt.savefig(f"{titleName}-{sensor}_traceFit.eps", format='eps')
@@ -316,6 +324,24 @@ def trace_overlay(detname, sensor, bins, trace, fitshape, template):
 
     if detname: plt.title(detname)
     plt.tight_layout()
+
+
+def load_template(detname, chan, sensor):
+    """Extract channel template for specified detector, as Numpy array"""
+    printVerbose(f"load_template(detname='{detname}', chan={chan}, sensor={sensor})")
+    
+    if detname is None or detname == "": return None
+    
+    templatePath = f"{CDMS_SUPERSIM}/CDMSgeometry/data/dmc/{detname}/{sensor}Templates"
+    if not os.path.isfile(templatePath): return None
+
+    colname = {"TES":"Traces", "FET":"Trace"}[sensor]
+    templates = pd.read_csv(templatePath,sep="\t")
+    template = templates.loc[chan,colname].split()
+    template = np.array([float(i) for i in template])
+
+    printVerbose(" got template from {} with {} bins".format(templatePath, len(template)))
+    return template
 
 
 ### MAIN PROGRAM ###

@@ -4,11 +4,12 @@
    Usage: import traceReader
           myReader = traceReader("path/to/DMC-file.root")
           bins = myReader.timeBins("TES")
-          tracePAS1 = myReader.TES(event=2,det=0,chan="PAS1")
+          tracePAS1 = myReader.TES(event=2,chan="PAS1",det=0)
 
    Michael Kelsey <kelsey@tamu.edu>, Texas A&M University 2024
    
    20241028  Adapted from traces_rdf.py to reduce RDF memory overhead
+   20241201  Swap det and chan arguments in binning functions.
 """
 
 import numpy as np
@@ -117,20 +118,20 @@ class traceReader:
 
     # Get time binning for specified detector
 
-    def timeBins(self, sensor, det=0, chan=0):
+    def timeBins(self, sensor, chan=0, det=0):
         """Return array of time bin edges for specified sensor channel."""
-        self.printVerbose(f"timeBins('{sensor}', det={det},chan={chan})")
+        self.printVerbose(f"timeBins('{sensor}', chan={chan}, det={det})")
 
-        nBins, T0, dT = self.binning(sensor, det, chan)
+        nBins, T0, dT = self.binning(sensor, chan, det)
         bins = np.arange(nBins)*dT+T0      # More accurate than floating arange
         return bins
 
-    def binning(self, sensor, det=0, chan=0):
+    def binning(self, sensor, chan=0, det=0):
         """Return time binning parameters for specified sensor channel.
            Output: numBins  = Number of time bins per trace
                    T0       = Start time of trace (us)
                    BinWidth = Spacing between time bins (us)"""
-        self.printVerbose(f"binning('{sensor}', det={det}, chan={chan})")
+        self.printVerbose(f"binning('{sensor}', chan={chan}, det={det})")
 
         branches = ['Trace','BinWidth','T0']    # Need trace to get bin count
         filt = f"DetNum=={det} & DataType==0 & ChanNum=={self.channum(chan)}"
