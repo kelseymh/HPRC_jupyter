@@ -1,5 +1,7 @@
 ## imnports.py -- does all the import statements for my Jupyter analysis
-## Usage: from imports import * in Jupyter cell
+## Usage: from imports import *
+##
+## 20241202  Add environment variable handling for CDMS and Internet stuff
 
 from rawio.IO import *
 import math
@@ -22,3 +24,11 @@ import os, os.path
 import fnmatch
 import glob
 from sklearn.metrics import auc
+
+# Additional settings needed for CDMS work
+global CDMS_SUPERSIM
+CDMS_SUPERSIM = os.environ['CDMS_SUPERSIM']
+
+os.environ['HTTP_PROXY'] = '10.76.5.24:8080'
+os.environ['HTTPS_PROXY'] = '10.76.5.24:8080'
+os.environ['FTP_PROXY'] = '10.76.5.24:8080'
