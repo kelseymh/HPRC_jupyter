@@ -49,6 +49,9 @@ def setVerbose(vb=True):        # To set the global from outside
     global verbose
     verbose = vb
 
+def getVerbose():		# To access the global variable value
+    return verbose
+
 ### PRIMARY FUNCTIONS ###
 
 sensorType = None               # Global variable, to use in internal functions
@@ -76,7 +79,7 @@ def traceFit_TES(file, detname="", event=0, channel=0, doplot=False):
        fit for shape"""
     printVerbose("traceFit_TES()")
 
-    reader   = traceReader(file, verbose)
+    reader   = traceReader.traceReader(file, getVerbose())
     bins     = reader.timeBins("TES", channel)
     trace    = reader.TES(event, channel)
     I0       = reader.TES_I0(event, channel)
@@ -100,9 +103,9 @@ def traceFit_FET(file, detname="", event=0, channel=0, doplot=False):
     """Get specified FET trace (event and channel) from DMC file, fit for shape"""
     printVerbose("traceFit_FET")
 
-    reader  = traceReader(file, verbose)
+    reader  = traceReader.traceReader(file, getVerbose())
     bins    = reader.timeBins("FET", channel)
-    trace   = reader.FET(evemt, channel)
+    trace   = reader.FET(event, channel)
     ChargeQ = reader.getChargeQ(event)
     Ceff    = ChargeQ*1.60218e-4 / max(trace)	#  = Q/V, pF = 1e12 * coulomb/volt
 
@@ -361,7 +364,7 @@ def getargs():
     """
     import getopt
     try:
-        opts, args = getopt.getopt(sys.argv[1:], 'c:d:e:hpv')
+        opts, args = getopt.getopt(sys.argv[1:], 'c:d:e:s:hpv')
     except getopt.GetoptError as err:
         sys.exit(2)
 
@@ -392,7 +395,7 @@ def getargs():
         elif o == '-s':
             settings['sensor'] = a
         elif o == '-v':
-            setVerbose(true)
+            setVerbose(True)
 
     printVerbose(f"settings = {settings}")
         
