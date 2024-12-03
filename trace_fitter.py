@@ -58,7 +58,7 @@ sensorType = None               # Global variable, to use in internal functions
 
 def traceFit(file, detname="", sensor="TES", event=0, channel=0, doplot=False):
     """Get specified TES or FET trace (event and channel) from DMC file,
-       fit for shape and make overlay plots if requested"""
+       fit for shape and make overlay plots if requested."""
     printVerbose(f"traceFit(file='{file}', detname='{detname}', event={event},"
                  f" channel={channel}, sensor={sensor}, doplot={doplot})")
 
@@ -76,7 +76,7 @@ def traceFit(file, detname="", sensor="TES", event=0, channel=0, doplot=False):
         
 def traceFit_TES(file, detname="", event=0, channel=0, doplot=False):
     """Get specified TES trace (event and channel) from DMC file,
-       fit for shape"""
+       fit for shape."""
     printVerbose("traceFit_TES()")
 
     reader   = traceReader.traceReader(file, getVerbose())
@@ -100,7 +100,7 @@ def traceFit_TES(file, detname="", event=0, channel=0, doplot=False):
     print(f'Offset  \t{offset:.4e} us')
     
 def traceFit_FET(file, detname="", event=0, channel=0, doplot=False):
-    """Get specified FET trace (event and channel) from DMC file, fit for shape"""
+    """Get specified FET trace (event and channel) from DMC file, fit for shape."""
     printVerbose("traceFit_FET")
 
     reader  = traceReader.traceReader(file, getVerbose())
@@ -126,20 +126,20 @@ def traceFit_FET(file, detname="", event=0, channel=0, doplot=False):
 
 def TESshape(x, a, t_r, t_f, offset):
     """Shape of flipped TES trace above baseline, with simple
-       rise and fall times"""
+       rise and fall times."""
     return a*(np.exp(-(x-offset)/t_f)-np.exp(-(x-offset)/t_r))
 
 def FETshape(x, a, invTd, invTr, offset):
     """Shape of normalized FET trace above baseline, with simple
        decay and recovery rates
-       NOTE: Peak value is not 'a'; it is a*(invTd-invTr)"""
+       NOTE: Peak value is not 'a'; it is a*(invTd-invTr)."""
     return a*(np.exp(-(x-offset)*invTd)*invTd - np.exp(-(x-offset)*invTr)*invTr)
 
 
 ### FITTING BOUNDS AND INITIAL VALUE ESTIMATES ###
 
 def guessTES(bins, trace):
-    """Returns initial guesses for TES fit rise and fall time for curve_fit"""
+    """Returns initial guesses for TES fit rise and fall time for curve_fit."""
     peak = trace.max()
     ipeak = trace.argmax()
     printVerbose(f"guessTES: peak {peak} @ bin {ipeak} (t {bins[ipeak]})")
@@ -160,7 +160,7 @@ def guessTES(bins, trace):
     offsetGuess = bins[ipeak] - tpeak
     
     # Scale factor should be max of shape scaled by actual peak value
-    pmax = pulseShape(tpeak, 1., riseGuess, fallGuess, 0.)
+    pmax = TESshape(tpeak, 1., riseGuess, fallGuess, 0.)
     scaleGuess = peak / pmax
 
     printVerbose(f"guessTES: scale {scaleGuess:.4e} rise {riseGuess:.4e},"
@@ -169,7 +169,7 @@ def guessTES(bins, trace):
     return scaleGuess, riseGuess, fallGuess, offsetGuess
 
 def guessFET(bins, trace):
-    """Returns initial guesses for FET fit inverse decay and recovery times"""
+    """Returns initial guesses for FET fit inverse decay and recovery times."""
     
     peak = trace.max()
     ipeak = trace.argmax()
@@ -195,7 +195,7 @@ def guessFET(bins, trace):
         rhi = np.nonzero(trace[imin:]>=min(tmin*0.4/np.e,tlast))[0][0]
         recoveryGuess = 2./(bins[rhi]-bins[rlo])
         if recoveryGuess < 0.1*decayGuess:
-            printVerbose("f recoveryGuess {recoveryGuess} not physical.")
+            printVerbose(f" recoveryGuess {recoveryGuess} not physical.")
             recoveryGuess = 0.
 
     # FET function is [A/(D-R)]*(D*exp(-t*D) - R*exp(-t*R))
@@ -207,11 +207,11 @@ def guessFET(bins, trace):
     return scaleGuess, decayGuess, recoveryGuess, offsetGuess
 
 
-def guessRange(guessFunc=None):
-    """Compute allowed parameter ranges for fit based on initial guess values"""
-    print(f"guessRange(guessFunc={guessFunc})")
+def guessRange(guess=None):
+    """Compute allowed parameter ranges for fit based on initial guess values."""
+    print(f"guessRange(guess={guess})")
 
-    if guessFunc is None:
+    if guess is None:
         return (-np.inf, np.inf)
 
     lower = 0.1*np.array(guess)
@@ -229,7 +229,7 @@ def guessRange(guessFunc=None):
 def fittingRange(trace, cut=0.2):
     """Return starting and ending points for pulse fit, corresponding to
        'cut' height on either side of peak.  Assumes TES trace has been
-       baseline-subtracted and flipped"""
+       baseline-subtracted and flipped."""
     peak = max(trace)          # Peak Height
     ipeak = trace.tolist().index(peak)
     printVerbose(f"fittingRange: peak {peak} @ bin {ipeak}")
@@ -266,9 +266,10 @@ def trace_fitting(bins, trace, pulseShape, guessFunc=None, dobounds=True):
     start, end = fittingRange(trace)
 
     guess = guessFunc(bins, trace) if guessFunc else None
-    bounds = guessRange(guessFunc) if dobounds else (-np.inf,np.inf)
+    bounds = guessRange(guess) if dobounds else (-np.inf,np.inf)
     
-    printVerbose(f" range [{start}:{end}]\n guess {guess}\n bounds{bounds}")
+    printVerbose(f" range [{start}:{end}]\n guess {guess}")
+    if (dobounds): printVerbose(f"bounds {bounds}")
                 
     params, _ = curve_fit(pulseShape, bins[start:end], trace[start:end],
                           p0=guess, bounds=bounds)
@@ -279,7 +280,7 @@ def trace_fitting(bins, trace, pulseShape, guessFunc=None, dobounds=True):
 
 
 def trace_plots(detname, sensor, channel, bins, trace, fitshape):
-    """Generate linear and log overlays of trace and fitted function"""
+    """Generate linear and log overlays of trace and fitted function."""
     printVerbose(f"tracePlots(detname='{detname}', bins, trace, fitshape)")
     
     titleName = detname if detname else "Trace"
@@ -293,8 +294,7 @@ def trace_plots(detname, sensor, channel, bins, trace, fitshape):
     
 def trace_overlay(detname, sensor, bins, trace, fitshape, template):
     """Plots TES or FET trace (log and linear) with specified binning, overlaid
-       with fitted shape and template detname argument used for plot title
-    """
+       with fitted shape and template detname argument used for plot title."""
     printVerbose(f"trace_overlay(detname='{detname}', sensor='{sensor}',"
                  f" bins, trace, fitshape, template)")
     
@@ -330,7 +330,7 @@ def trace_overlay(detname, sensor, bins, trace, fitshape, template):
 
 
 def load_template(detname, chan, sensor):
-    """Extract channel template for specified detector, as Numpy array"""
+    """Extract channel template for specified detector, as Numpy array."""
     printVerbose(f"load_template(detname='{detname}', chan={chan}, sensor={sensor})")
     
     if detname is None or detname == "": return None
