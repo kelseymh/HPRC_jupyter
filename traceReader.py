@@ -10,6 +10,7 @@
    
    20241028  Adapted from traces_rdf.py to reduce RDF memory overhead
    20241201  Swap det and chan arguments in binning functions.
+   20241202  Use try/except to support non-existent trace TTrees.
 """
 
 import numpy as np
@@ -46,11 +47,21 @@ class traceReader:
         """Constructor: Creates RDataFrames for TES and FET traces."""
         self.files = files
         self.verbose = verbose
-        self.tesDF = CDataFrame("G4SimDir/g4dmcTES", files)
-        self.fetDF = CDataFrame("G4SimDir/g4dmcFET", files)
+
+        try:		# Better if CDataFrame had a flag for this
+            self.tesDF = CDataFrame("G4SimDir/g4dmcTES", files)
+        except:
+            self.tesDF = None
+
+        try:		# Better if CDataFrame had a flag for this
+            self.fetDF = CDataFrame("G4SimDir/g4dmcFET", files)
+        except:
+            self.fetDF = None
+
         self.dfs = { 1: self.tesDF, "TES": self.tesDF,
                      2: self.fetDF, "FET": self.fetDF }
         self.evtDF = CDataFrame("G4SimDir/g4dmcEvent", files)
+
         return
 
     # Useful diagnostic functions
@@ -222,7 +233,7 @@ class traceReader:
 
     def TES_I0(self, event, chan=0, det=0):
         """Returns adaptive average (minimum uncertainty) of TES baseline."""
-        printVerbose(f"TES_I0({event}, chan={chan}, det={det}")
+        self.printVerbose(f"TES_I0({event}, chan={chan}, det={det}")
 
         I0, _,_ = self.bestI0(self.rawTES(event,chan,det))    # Ignore err,index
         return I0
@@ -255,7 +266,7 @@ class traceReader:
         filt = f"EventNum=={event} & DetNum=={det} & DataType=={dtype}"
         filt += f" & ChanNum=={self.subchannum(chan)}"
 
-        self.printVerbose(f"Applying filter '{filter}'")
+        self.printVerbose(f"Applying filter '{filt}'")
 
         # NOTE: Final bracket unwraps dictionary, to get value array of arrays
         trace = self.dfs[sensor].Filter(filt).AsNumpy(["Trace"])["Trace"]
@@ -285,14 +296,14 @@ class traceReader:
            User can use `traceReader.channels("TES", event, det)` to get
            list of channels and unpack the array."""
         filt = f"EventNum=={event} & DetNum=={det}"
-        return self.evtDF.Filter(filt).AsNumpy("PhononE")["PhononE"]
+        return self.evtDF.Filter(filt).AsNumpy(["PhononE"])["PhononE"][0]
 
     def getChargeQ(self, event, det=0):
         """Returns array of ChargeQ values for all channels in detector.
            User can use `traceReader.channels("FET", event, det)` to get
            list of channels and unpack the array."""
         filt = f"EventNum=={event} & DetNum=={det}"
-        return self.evtDF.Filter(filt).AsNumpy("ChargeQ")["ChargeQ"]
+        return self.evtDF.Filter(filt).AsNumpy(["ChargeQ"])["ChargeQ"][0]
 
 
     # G4DMC enumerator/string mappings
