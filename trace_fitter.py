@@ -84,15 +84,17 @@ def traceFit_TES(file, detname="", event=0, channel=0, doplot=False):
     trace    = reader.TES(event, channel)
     I0       = reader.TES_I0(event, channel)
     PhononE  = reader.getPhononE(event)
-    IversusE = max(trace)/PhononE
+    IversusE = max(trace)/PhononE[channel]
     
     #### Obtain figures of merit measurements for trace and template ####
     results = trace_fitting(bins, trace, TESshape, guessTES)
     if doplot:
         trace_plots(detname,"TES",channel,bins,trace,TESshape(bins,*results))
-    
+
+    cname = reader.channels("TES")[channel]
+
     a, tR, tF, offset = results            # Unroll results for reporting
-    print(f'#  shape parameters (to generate templates)')
+    print(f'# {detname} {cname} shape parameters (to generate templates)')
     print(f'I0\t\t{I0:.4e} microampere')
     print(f'IversusE\t{IversusE:.4e} microampere/eV')
     print(f'riseTime\t{tR:.4e} us')
@@ -107,15 +109,18 @@ def traceFit_FET(file, detname="", event=0, channel=0, doplot=False):
     bins    = reader.timeBins("FET", channel)
     trace   = reader.FET(event, channel)
     ChargeQ = reader.getChargeQ(event)
-    Ceff    = ChargeQ*1.60218e-4 / max(trace)	#  = Q/V, pF = 1e12 * coulomb/volt
+    Ceff    = ChargeQ[channel]*1.60218e-4 / max(trace)
+    # = Q/V, pF = 1e12 * coulomb/volt
 
     #### Obtain figures of merit measurements for trace and template ####
     results = trace_fitting(bins, trace, FETshape, guessFET, False)
     if doplot:
         trace_plots(detname,"FET",channel,bins,trace,FETshape(bins,*results))
 
+    cname = reader.channels("FET")[channel]
+
     a, invTd, invTr, offset = results      # Unroll results for reporting
-    print(f'# FET {detname} shape parameters (to generate templates)')
+    print(f'# FET {detname} {cname} shape parameters (to generate templates)')
     print(f'templateCeff\t{Ceff:.4e} pF')
     print(f'decayTime   \t{1./invTd:.4e} us\t# decayRate {invTd:.4e}/us')
     print(f'recoveryTime\t{1./invTr:.4e} us\t# recoveryRate {invTr:.4e}/us')
@@ -209,9 +214,9 @@ def guessFET(bins, trace):
 
 def guessRange(guess=None):
     """Compute allowed parameter ranges for fit based on initial guess values."""
-    print(f"guessRange(guess={guess})")
+    printVerbose(f"guessRange(guess={guess})")
 
-    if guess is None:
+    if guess is None or guess==0.:
         return (-np.inf, np.inf)
 
     lower = 0.1*np.array(guess)
