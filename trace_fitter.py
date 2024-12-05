@@ -8,6 +8,8 @@
 # 20240110  Adding support for FET traces, RDF input instead of root_numpy
 # 20240115  Add diagnostic output, improve TES vs. FET configurations
 # 20241201  Replace traces_rdf with new traceReader class; compute Ceff for FET
+# 20241204  For event==-1, average traces from all events.  For channel==-1,
+#	      loop over channels and report all fit results.
 
 def usage():
     print("""
@@ -18,13 +20,16 @@ Reads in TES or FET traces from single-detector file, fits for shape parameters
              
 Argument: <file>    DMC ROOT file from single-detector simulation
 Options: -d <det>   Detector type name (iZIP5, NF-C, etc.)
-         -e <event> Event number from file to be processed
-         -c <chan>  Index (0 to N-1) of channel to be processed
+         -e <event> Event number from file to be processed (-1 does average)
+         -c <chan>  Index (0 to N-1) of channel to be processed (-1 iterates)
          -s <type>  Sensor type (TES or FET)
          -h         [Optional] Display this usage information
          -p         [Optional] Generate plots of fit results
          -v         [Optional] Verbose output
-                      
+
+NOTE: Using `-e -1` will presume that all events have identical energy.  If
+      they do not, the averaging will introduce biases.
+
 Requires: Numpy, Matplotlib, SciPy, ROOT""")
 
 ### CONFIGURATION ###
@@ -62,6 +67,14 @@ def traceFit(file, detname="", sensor="TES", event=0, channel=0, doplot=False):
     printVerbose(f"traceFit(file='{file}', detname='{detname}', event={event},"
                  f" channel={channel}, sensor={sensor}, doplot={doplot})")
 
+    if (channel<0):
+        printVerbose("Processing all channels...")
+        allChans = traceReader.traceReader(file,getVerbose()).channels(sensor)
+        for ichan in range(len(allChans)):
+            traceFit(file, detname, sensor, event, ichan, doplot)
+        return
+
+    # Following is for a single channel
     global sensorType          # Record specified sensor for low-level functions
     sensorType = sensor
 
@@ -72,7 +85,7 @@ def traceFit(file, detname="", sensor="TES", event=0, channel=0, doplot=False):
     else:
         print(f"Invalid sensor type '{sensor}' specified.")
         exit(2)
-        
+
         
 def traceFit_TES(file, detname="", event=0, channel=0, doplot=False):
     """Get specified TES trace (event and channel) from DMC file,
@@ -81,6 +94,8 @@ def traceFit_TES(file, detname="", event=0, channel=0, doplot=False):
 
     reader   = traceReader.traceReader(file, getVerbose())
     bins     = reader.timeBins("TES", channel)
+
+    # TODO: Retrieve all events (do it in the reader) and compute average
     trace    = reader.TES(event, channel)
     I0       = reader.TES_I0(event, channel)
     PhononE  = reader.getPhononE(event)
@@ -107,6 +122,8 @@ def traceFit_FET(file, detname="", event=0, channel=0, doplot=False):
 
     reader  = traceReader.traceReader(file, getVerbose())
     bins    = reader.timeBins("FET", channel)
+
+    # TODO: Retrieve all events (do it in the reader) and compute average
     trace   = reader.FET(event, channel)
     ChargeQ = reader.getChargeQ(event)
     Ceff    = ChargeQ[channel]*1.60218e-4 / max(trace)
