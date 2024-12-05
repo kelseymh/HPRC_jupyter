@@ -93,7 +93,7 @@ def traceFit_TES(file, detname="", event=0, channel=0, doplot=False):
     printVerbose("traceFit_TES()")
 
     reader   = traceReader.traceReader(file, getVerbose())
-    bins     = reader.timeBins("TES", channel)
+    bins     = reader.timeBins("TES")
 
     # TODO: Retrieve all events (do it in the reader) and compute average
     trace    = reader.TES(event, channel)
@@ -121,7 +121,7 @@ def traceFit_FET(file, detname="", event=0, channel=0, doplot=False):
     printVerbose("traceFit_FET")
 
     reader  = traceReader.traceReader(file, getVerbose())
-    bins    = reader.timeBins("FET", channel)
+    bins    = reader.timeBins("FET")
 
     # TODO: Retrieve all events (do it in the reader) and compute average
     trace   = reader.FET(event, channel)

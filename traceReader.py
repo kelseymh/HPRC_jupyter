@@ -135,13 +135,13 @@ class traceReader:
 
     def timeBins(self, sensor, det=0):
         """Return array of time bin edges for specified sensor type."""
-        self.printVerbose(f"timeBins('{sensor}', cdet={det})")
+        self.printVerbose(f"timeBins('{sensor}', det={det})")
 
         nBins, T0, dT = self.binning(sensor, det)
         bins = np.arange(nBins)*dT+T0      # More accurate than floating arange
         return bins
 
-    def binning(self, sensor,  det=0):
+    def binning(self, sensor, det=0):
         """Return time binning parameters for specified sensor type.
            Output: numBins  = Number of time bins per trace
                    T0       = Start time of trace (us)
