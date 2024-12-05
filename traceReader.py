@@ -357,7 +357,7 @@ class traceReader:
 
     def getEvents(self, det=0):
         """Returns list of event numbers for specified detector."""
-        self.printVervose(f"getEvents(det={det})")
+        self.printVerbose(f"getEvents(det={det})")
 
         filt = f"DetNum=={det}"
         return self.evtDF.Filter(filt).AsNumpy(["EventNum"])["EventNum"]
