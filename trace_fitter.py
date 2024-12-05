@@ -92,10 +92,13 @@ def traceFit_TES(file, detname="", event=0, channel=0, doplot=False):
        fit for shape."""
     printVerbose("traceFit_TES()")
 
+    # TODO: Retrieve all events (do it in the reader) and compute average
+    if (event<0):
+        print("traceFit_TES cannot do multi-event averaging yet\n")
+        return
+
     reader   = traceReader.traceReader(file, getVerbose())
     bins     = reader.timeBins("TES")
-
-    # TODO: Retrieve all events (do it in the reader) and compute average
     trace    = reader.TES(event, channel)
     I0       = reader.TES_I0(event, channel)
     PhononE  = reader.getPhononE(event)
@@ -120,10 +123,13 @@ def traceFit_FET(file, detname="", event=0, channel=0, doplot=False):
     """Get specified FET trace (event and channel) from DMC file, fit for shape."""
     printVerbose("traceFit_FET")
 
+    # TODO: Retrieve all events (do it in the reader) and compute average
+    if (event<0):
+        print("traceFit_TES cannot do multi-event averaging yet\n")
+        return
+
     reader  = traceReader.traceReader(file, getVerbose())
     bins    = reader.timeBins("FET")
-
-    # TODO: Retrieve all events (do it in the reader) and compute average
     trace   = reader.FET(event, channel)
     ChargeQ = reader.getChargeQ(event)
     Ceff    = ChargeQ[channel]*1.60218e-4 / max(trace)
