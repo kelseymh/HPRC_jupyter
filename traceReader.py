@@ -11,6 +11,9 @@
    20241028  Adapted from traces_rdf.py to reduce RDF memory overhead
    20241201  Swap det and chan arguments in binning functions.
    20241202  Use try/except to support non-existent trace TTrees.
+   20241204  Drop channel argument for time binning (all channels match).
+	     Add support for channel sets and event sets; new TESsum()
+             function to return 'PTOF' sum of traces.
 """
 
 import numpy as np
@@ -33,9 +36,10 @@ class traceReader:
        files = Name of DMC ROOT file, or list of names (to use as TChain)
        verbose = (optional) True reports function calls, progress
 
-       Most functions will take three arguments:
+       Most functions will take three or four arguments:
        sensor   = String name for trace type, "TES" or "FET"
-       event    = (default=0) Event number to read
+       event    = (default=0) Event number to read (-1 means array of all)
+       channel  = (default=0) Channel index or name to read (-1 means all)
        detector = (default=0) Detector number to read
 
        If the sensor type is in the function name, it is not passed as an
@@ -129,28 +133,31 @@ class traceReader:
 
     # Get time binning for specified detector
 
-    def timeBins(self, sensor, chan=0, det=0):
-        """Return array of time bin edges for specified sensor channel."""
-        self.printVerbose(f"timeBins('{sensor}', chan={chan}, det={det})")
+    def timeBins(self, sensor, det=0):
+        """Return array of time bin edges for specified sensor type."""
+        self.printVerbose(f"timeBins('{sensor}', cdet={det})")
 
-        nBins, T0, dT = self.binning(sensor, chan, det)
+        nBins, T0, dT = self.binning(sensor, det)
         bins = np.arange(nBins)*dT+T0      # More accurate than floating arange
         return bins
 
-    def binning(self, sensor, chan=0, det=0):
-        """Return time binning parameters for specified sensor channel.
+    def binning(self, sensor,  det=0):
+        """Return time binning parameters for specified sensor type.
            Output: numBins  = Number of time bins per trace
                    T0       = Start time of trace (us)
                    BinWidth = Spacing between time bins (us)"""
-        self.printVerbose(f"binning('{sensor}', chan={chan}, det={det})")
+        self.printVerbose(f"binning('{sensor}', det={det})")
 
         branches = ['Trace','BinWidth','T0']    # Need trace to get bin count
-        filt = f"DetNum=={det} & DataType==0 & ChanNum=={self.channum(chan)}"
+        filt = f"DetNum=={det} & DataType==0 & ChanNum==0"
         binData = self.dfs[sensor].Filter(filt).Range(0,1).AsNumpy(branches)
 
         numBins  = len(binData['Trace'][0])     # number of bins
         T0       = binData['T0'][0]*1e-3        # start time of trace (ns -> us)
         BinWidth = binData['BinWidth'][0]*1e-3  # width of bin (ns -> us)
+
+        self.printVerbose(f"numBins {numBins}, T0 {T0}, binWidth {BinWidth}")
+
         return numBins, T0, BinWidth
 
     
@@ -158,30 +165,68 @@ class traceReader:
 
     def TES(self, event, chan=0, det=0):
         """Read single-channel TES trace for specified event, normalize to
-           upward going with zero baseline (analysis style).  If chan=-1,
-           returns all traces as Numpy dictionary (see allTES() )."""
+           upward going with zero baseline (analysis style).
+
+           If chan=-1, returns all traces as Numpy dictionary with allTES()
+           If event=-1, returns array of traces
+           If both are -1, returns dictionary of array of traces
+        """
         if (self.channum(chan,det)<0): return self.allTES(event,det)
 
         self.printVerbose(f"TES({event}, chan={chan}, det={det})")
+
+        if (event<0):		# All events, loop for normalization
+            events = self.getEvents(det)
+            return [ self.TES(ev,chan,det) for ev in events ]
 
         raw = self.rawTES(event, chan, det)
         I0, _,_ = self.bestI0(raw)		# Discard RMS and index
         return I0-raw
 
+    def TESsum(self, event, det=0):
+        """Sum all TES traces for specified event, after normalizing to
+           upward going with zero baseline ('PTOF' version).
+
+           If event=-1, returns array of traces
+        """
+        self.printVerbose(f"TESsum({event}, det={det})")
+
+        if (event<0):		# All events, loop for normalization
+            events = self.getEvents(det)
+            return [ self.TESsum(ev,det) for ev in events ]
+
+        tesDict = self.allTES(event, det)	# Dictionary keyed by channel
+        traces = np.array(list(tesDict.values()))
+        return np.sum(traces, axis=0)		# Sums traces bin-by-bin
+
     def FET(self, event, chan=0, det=0):
         """Read single-channel FET trace for specified event, normalize to
-           upward going with zero baseline (analysis style).  If chan=-1,
-           returns all traces as Numpy dictionary (see allFET() )."""
+           upward going with zero baseline (analysis style).
+
+           If chan=-1, returns all traces as Numpy dictionary with allFET()
+           If event=-1, returns array of traces
+           If both are -1, returns dictionary of array of traces
+        """
         if (self.channum(chan,det)<0): return self.allFET(event,det)
 
         self.printVerbose(f"FET({event}, chan={chan}, det={det})")
 
         trace = self.rawFET(event, chan, det)
-        return trace if abs(trace.max())>abs(trace.min()) else -trace
+
+        if (event<0):		# All events: normalize each trace in array
+            for i in range(0,len(trace)):
+                if abs(trace[i].max())>abs(trace[i].min()): trace[i] = -trace[i]
+        else:
+            if abs(trace.max())>abs(trace.min()): trace = -trace
+
+        return trace
 
     def allTES(self, event, det=0):
         """Load baseline-normalized TES traces for specified event into
-           Numpy dictionary, keyed with channel names."""
+           Numpy dictionary, keyed with channel names.
+
+           If event<0, returns dictionary of lists of traces for all events.
+        """
         self.printVerbose(f"allTES({event}, det={det})")
 
         chans = self.channels("TES", det)
@@ -190,7 +235,10 @@ class traceReader:
 
     def allFET(self, event, det=0):
         """Load baseline-normalized TES traces for specified event into
-           Numpy dictionary, keyed with channel names."""
+           Numpy dictionary, keyed with channel names.
+
+           If event<0, returns dictionary of lists of traces for all events.
+        """
         self.printVerbose(f"allFET({event}, det={det})")
 
         chans = self.channels("FET", det)
@@ -243,28 +291,32 @@ class traceReader:
 
     def rawTES(self, event, chan=0, det=0):
         """Read single-channel TES trace in original DMC format (I0 baseline,
-           downward going pulse)."""
+           downward going pulse).  If event<0, all traces are returned as
+           array of arrays."""
         self.printVerbose(f"rawTES({event}, chan={chan}, det={det})")
         return self.loadTrace(event, "TES", chan, det, dtype=0)
 
     def rawFET(self, event, chan=0, det=0):
         """Read single-channel FET trace in original DMC format (zero baseline,
            upward or downward going pulse, depending on charge carrier and
-           detector bias)."""
+           detector bias).  If event<0, all traces are returned as array of
+           arrays."""
         self.printVerbose(f"rawFET({event}, chan={chan}, det={det})")
         return self.loadTrace(event, "FET", chan, det, dtype=0)
 
     def loadTrace(self, event, sensor, chan=0, det=0, dtype=0):
         """Extract requested trace (TES or FET, signal or diagnostic data,
-           from event in file.
+           from event in file.  If event<0, all traces are returned as array
+           of arrays.
            NOTE: channel may reference a decimal subchannel, or request all
                  subchannels as an array of traces.
         """
         self.printVerbose(f"loadTrace({event}, '{sensor}', chan={chan},"
                           f" det={det}, dtype={dtype})")
 
-        filt = f"EventNum=={event} & DetNum=={det} & DataType=={dtype}"
-        filt += f" & ChanNum=={self.subchannum(chan)}"
+        filt = f"EventNum=={event} & " if event>=0 else ""
+        filt += f"DetNum=={det} & DataType=={dtype} & "
+        filt += f"ChanNum=={self.subchannum(chan)}"
 
         self.printVerbose(f"Applying filter '{filt}'")
 
@@ -272,39 +324,63 @@ class traceReader:
         trace = self.dfs[sensor].Filter(filt).AsNumpy(["Trace"])["Trace"]
 
 	# Strip outer array if single-value result expected
-        return trace if self.hasSubchans(dtype) else trace[0]
+        return trace if self.hasSubchans(dtype) || event<0 else trace[0]
 
     def bestI0(self, trace):
         """Compute 'adaptive I0' for trace, scanning the supposed pre-trigger
            baseline for the range of values with the smallest RMS.  This
            should exclude the region where the real trace starts.
            Returns computed I0 value, along with uncertainty, and end
-           index of range."""
+           index of range.
+
+           If a list of traces is provided, then three lists, of the three
+           computed values, will be returned."""
         self.printVerbose(f"bestI0({type(trace)})")
+
+        if np.asarray(trace).ndim == 2:		# List of traces
+            # Builds array of [[I0,eom,index], [I0,eom,index], ...]
+            I0transpose = [self.bestI0(trace[i]) for i in range(len(trace))]
+
+            # Convert to three arrays [I0,...], [eom,...], [index,...]
+            return list(zip(*IOtranspose))
 
         start = 5                   # Need some bins to compute RMS
         eom = [np.std(trace[:i])/np.sqrt(i) for i in range(start,len(trace))]
         ibest = eom.index(min(eom))+start
-        
-        return np.mean(trace[:ibest]), eom[ibest], ibest
+        I0 = np.mean(trace[:ibest])
+        self.printVerbose(f"I0 {I0} +- {eom[ibest]}, [0:{ibest}]")
+
+        return I0, eom[ibest], ibest
 
 
     # Event level summary information, related to traces
+
+    def getEvents(self, det=0):
+        """Returns list of event numbers for specified detector."""
+        self.printVervose(f"getEvents(det={det})")
+
+        filt = f"DetNum=={det}"
+        return self.evtDF.Filter(filt).AsNumpy(["EventNum"])["EventNum"]
 
     def getPhononE(self, event, det=0):
         """Returns array of PhononE values for all channels in detector.
            User can use `traceReader.channels("TES", event, det)` to get
            list of channels and unpack the array."""
         filt = f"EventNum=={event} & DetNum=={det}"
-        return self.evtDF.Filter(filt).AsNumpy(["PhononE"])["PhononE"][0]
+        phE = self.evtDF.Filter(filt).AsNumpy(["PhononE"])["PhononE"][0]
+        self.printVerbose(f"getPhononE({event}, det={det}) = {phE}")
+
+        return phE
 
     def getChargeQ(self, event, det=0):
         """Returns array of ChargeQ values for all channels in detector.
            User can use `traceReader.channels("FET", event, det)` to get
            list of channels and unpack the array."""
         filt = f"EventNum=={event} & DetNum=={det}"
-        return self.evtDF.Filter(filt).AsNumpy(["ChargeQ"])["ChargeQ"][0]
+        chgQ = self.evtDF.Filter(filt).AsNumpy(["ChargeQ"])["ChargeQ"][0]
+        self.printVerbose(f"getChargeQ({event}, det={det}) = {chgQ}")
 
+        return chgQ
 
     # G4DMC enumerator/string mappings
 
