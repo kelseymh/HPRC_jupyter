@@ -324,7 +324,7 @@ class traceReader:
         trace = self.dfs[sensor].Filter(filt).AsNumpy(["Trace"])["Trace"]
 
 	# Strip outer array if single-value result expected
-        return trace if self.hasSubchans(dtype) || event<0 else trace[0]
+        return trace if (self.hasSubchans(dtype) or event<0) else trace[0]
 
     def bestI0(self, trace):
         """Compute 'adaptive I0' for trace, scanning the supposed pre-trigger
