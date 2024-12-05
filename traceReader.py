@@ -342,7 +342,7 @@ class traceReader:
             I0transpose = [self.bestI0(trace[i]) for i in range(len(trace))]
 
             # Convert to three arrays [I0,...], [eom,...], [index,...]
-            return list(zip(*IOtranspose))
+            return list(zip(*I0transpose))
 
         start = 5                   # Need some bins to compute RMS
         eom = [np.std(trace[:i])/np.sqrt(i) for i in range(start,len(trace))]
