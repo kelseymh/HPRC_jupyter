@@ -90,7 +90,7 @@ def traceFit(file, detname="", sensor="TES", event=0, channel=0, doplot=False):
 def traceFit_TES(file, detname="", event=0, channel=0, doplot=False):
     """Get specified TES trace (event and channel) from DMC file,
        fit for shape."""
-    printVerbose("traceFit_TES()")
+    printVerbose("traceFit_TES()")  
 
     # TODO: Retrieve all events (do it in the reader) and compute average
     if (event<0):
@@ -101,8 +101,8 @@ def traceFit_TES(file, detname="", event=0, channel=0, doplot=False):
     bins     = reader.timeBins("TES")
     trace    = reader.TES(event, channel)
     I0       = reader.TES_I0(event, channel)
-    PhononE  = reader.getPhononE(event)
-    IversusE = max(trace)/PhononE[channel]
+    PhononE  = reader.getPhononE(event)[channel]
+    IversusE = max(trace)/PhononE
     
     #### Obtain figures of merit measurements for trace and template ####
     results = trace_fitting(bins, trace, TESshape, guessTES)
@@ -131,8 +131,8 @@ def traceFit_FET(file, detname="", event=0, channel=0, doplot=False):
     reader  = traceReader.traceReader(file, getVerbose())
     bins    = reader.timeBins("FET")
     trace   = reader.FET(event, channel)
-    ChargeQ = reader.getChargeQ(event)
-    Ceff    = ChargeQ[channel]*1.60218e-4 / max(trace)
+    ChargeQ = reader.getChargeQ(event)[channel]
+    Ceff    = ChargeQ*1.60218e-4 / max(trace)
     # = Q/V, pF = 1e12 * coulomb/volt
 
     #### Obtain figures of merit measurements for trace and template ####
