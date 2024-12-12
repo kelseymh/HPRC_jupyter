@@ -10,6 +10,9 @@
 # 20241201  Replace traces_rdf with new traceReader class; compute Ceff for FET
 # 20241204  For event==-1, average traces from all events.  For channel==-1,
 #	      loop over channels and report all fit results.
+# 20241212  Add separate reporting functions; return curve_fit result as
+#	      np.array(), rather than as tuple, append computed values for
+#	      reporting or multi-event averaging.
 
 def usage():
     print("""
@@ -89,8 +92,8 @@ def traceFit(file, detname="", sensor="TES", event=0, channel=0, doplot=False):
         
 def traceFit_TES(file, detname="", event=0, channel=0, doplot=False):
     """Get specified TES trace (event and channel) from DMC file,
-       fit for shape."""
-    printVerbose("traceFit_TES()")  
+       fit for shape.  Returns [Amplitude, tR, tF, Toffset, I0, IvsE]."""
+    printVerbose("traceFit_TES same args as traceFit()")  
 
     # TODO: Retrieve all events (do it in the reader) and compute average
     if (event<0):
@@ -100,28 +103,41 @@ def traceFit_TES(file, detname="", event=0, channel=0, doplot=False):
     reader   = traceReader.traceReader(file, getVerbose())
     bins     = reader.timeBins("TES")
     trace    = reader.TES(event, channel)
-    I0       = reader.TES_I0(event, channel)
-    PhononE  = reader.getPhononE(event)[channel]
-    IversusE = max(trace)/PhononE
     
     #### Obtain figures of merit measurements for trace and template ####
     results = trace_fitting(bins, trace, TESshape, guessTES)
+
+    I0       = reader.TES_I0(event, channel)
+    PhononE  = reader.getPhononE(event)[channel]
+    IversusE = results[0]/PhononE	# (a, tR, tF, timeShift)
+
+    np.insert(results, len(results), I0);
+    np.insert(results, len(results), IversusE);
+
+    cname = reader.channels("TES")[channel]
+    report_TESfit(detname, cname, results)
+
     if doplot:
         trace_plots(detname,"TES",channel,bins,trace,TESshape(bins,*results))
 
-    cname = reader.channels("TES")[channel]
+    return results
 
-    a, tR, tF, offset = results            # Unroll results for reporting
-    print(f'# {detname} {cname} shape parameters (to generate templates)')
+def report_TESfit(detname, cname, results):
+    """Print TES fit results in format suitable for use in TESConstants."""
+
+    a, tR, tF, offset, I0, IvsE = results     # Unroll results for reporting
+     print(f'# {detname} {cname} shape parameters (to generate templates)')
     print(f'I0\t\t{I0:.4e} microampere')
-    print(f'IversusE\t{IversusE:.4e} microampere/eV')
+    print(f'IversusE\t{IvsE:.4e} microampere/eV')
     print(f'riseTime\t{tR:.4e} us')
     print(f'fallTime\t{tF:.4e} us')
     print(f'Offset  \t{offset:.4e} us')
     
+
 def traceFit_FET(file, detname="", event=0, channel=0, doplot=False):
-    """Get specified FET trace (event and channel) from DMC file, fit for shape."""
-    printVerbose("traceFit_FET")
+    """Get specified FET trace (event and channel) from DMC file,
+       fit for shape.  Returns [Amplitude, invTd, invTr, Toffset, Ceff]."""
+    printVerbose("traceFit_FET same args as traceFit()")
 
     # TODO: Retrieve all events (do it in the reader) and compute average
     if (event<0):
@@ -131,19 +147,29 @@ def traceFit_FET(file, detname="", event=0, channel=0, doplot=False):
     reader  = traceReader.traceReader(file, getVerbose())
     bins    = reader.timeBins("FET")
     trace   = reader.FET(event, channel)
-    ChargeQ = reader.getChargeQ(event)[channel]
-    Ceff    = ChargeQ*1.60218e-4 / max(trace)
-    # = Q/V, pF = 1e12 * coulomb/volt
 
     #### Obtain figures of merit measurements for trace and template ####
     results = trace_fitting(bins, trace, FETshape, guessFET, False)
+
+    ChargeQ = reader.getChargeQ(event)[channel]
+    Ceff    = ChargeQ*1.60218e-4 / results[0]	# (a, invTd, invTr, timeShift)
+    # = Q/V, to get pF need 1e12 * coulomb/volt
+
+    np.insert(results, len(results), Ceff)
+
+    cname = reader.channels("FET")[channel]
+    report_FETfit(detname, cname, results)
+
     if doplot:
         trace_plots(detname,"FET",channel,bins,trace,FETshape(bins,*results))
 
-    cname = reader.channels("FET")[channel]
+    return results
 
-    a, invTd, invTr, offset = results      # Unroll results for reporting
-    print(f'# FET {detname} {cname} shape parameters (to generate templates)')
+def report_FETfit(detname, cname, Ceff, results):
+    """Print FET fit results in format suitable for use in FETConstants."""
+
+    a, invTd, invTr, offset, Ceff = results      # Unroll results for reporting
+    print(f'# {detname} {cname} shape parameters (to generate templates)')
     print(f'templateCeff\t{Ceff:.4e} pF')
     print(f'decayTime   \t{1./invTd:.4e} us\t# decayRate {invTd:.4e}/us')
     print(f'recoveryTime\t{1./invTr:.4e} us\t# recoveryRate {invTr:.4e}/us')
@@ -153,16 +179,25 @@ def traceFit_FET(file, detname="", event=0, channel=0, doplot=False):
 ### IDEALIZED PULSE SHAPES FOR FITTING ###
 
 def TESshape(x, a, t_r, t_f, offset):
-    """Shape of flipped TES trace above baseline, with simple
-       rise and fall times."""
-    return a*(np.exp(-(x-offset)/t_f)-np.exp(-(x-offset)/t_r))
+    """Shape of flipped TES trace above baseline, with simple rise and
+       fall times.  'a' is observed peak value."""
+    tpeak = ln(t_f/t_r) * t_f*t_r / (t_f-t_r)
+    peak = _TESshape(tpeak, t_f, t_r)
+    return (a/peak)*_TESshape(x-offset, t_f, t_r)
+
+def _TESshape(t,t_r,t_f):
+    """Normalized, zero-aligned TES shape.  For internal use only."""
+    return np.exp(-t/t_f)-np.exp(-t/t_r) if (t>=0) else 0.
 
 def FETshape(x, a, invTd, invTr, offset):
-    """Shape of normalized FET trace above baseline, with simple
-       decay and recovery rates
-       NOTE: Peak value is not 'a'; it is a*(invTd-invTr)."""
-    return a*(np.exp(-(x-offset)*invTd)*invTd - np.exp(-(x-offset)*invTr)*invTr)
+    """Shape of FET trace above baseline, with simple decay and recovery
+       rates. 'a' is observed peak value at t=0."""
+    peak = invTd - invTr
+    return (a/peak)*_FETshape(x-offset, invTd, invTr)
 
+def _FETshape(t, invTd, invTr):
+    """Normalized, zero-aligned FET shape.  For internal use only."""
+    return (np.exp(-t*invTd)*invTd - np.exp(-t*invTr)*invTr) if (t>=0) else 0.
 
 ### FITTING BOUNDS AND INITIAL VALUE ESTIMATES ###
 
@@ -303,8 +338,7 @@ def trace_fitting(bins, trace, pulseShape, guessFunc=None, dobounds=True):
                           p0=guess, bounds=bounds)
     printVerbose(f" final result {params}")
 
-    a, t1, t2, offset = params    
-    return a, t1, t2, offset
+    return params
 
 
 def trace_plots(detname, sensor, channel, bins, trace, fitshape):
