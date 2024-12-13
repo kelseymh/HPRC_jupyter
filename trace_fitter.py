@@ -13,6 +13,7 @@
 # 20241212  Add separate reporting functions; return curve_fit result as
 #	      np.array(), rather than as tuple, append computed values for
 #	      reporting or multi-event averaging.
+# 20241212  Convert most functionality to class, to better share settings.
 
 def usage():
     print("""
@@ -37,7 +38,7 @@ Requires: Numpy, Matplotlib, SciPy, ROOT""")
 
 ### CONFIGURATION ###
 
-import traceReader
+from traceReader import *
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -47,398 +48,425 @@ import os, sys
 global CDMS_SUPERSIM
 CDMS_SUPERSIM = os.environ['CDMS_SUPERSIM']
 
-### DIAGNOSTIC OUTPUT ###
 
-verbose=False                   # Global variable, value set in getargs()
-def printVerbose(string):
-    if verbose: print(string)
+### DRIVER CLASS TO PERFORM FITS ###
 
-def setVerbose(vb=True):        # To set the global from outside
-    global verbose
-    verbose = vb
+class traceFitter:
+    """Driver class to fit DMC-generated traces (TES or FET) to simple shapes
+       with single rise and fall time.  Uses traceReader to access events.
+       Pulse shapes are available via static methods TESshape(t,tR,tF) and
+       FETshape(t,invTd,invTr).
 
-def getVerbose():		# To access the global variable value
-    return verbose
+       Constructor arguments: (see also command line arguments in usage())
+       file = Name of DMC ROOT file, or list of names (to use as TChain)
+       sensor = 'TES' or 'FET' for kind of traces to be fit
+       verbose = (optional) True reports function calls, progress
 
-### PRIMARY FUNCTIONS ###
+       The sensor argument may be overridden after construction; the value
+       is used for by internal functions to know how to extract bin ranges and
+       initial guesses for fit parameters.
+    """
 
-sensorType = None               # Global variable, to use in internal functions
+    # Constructor
+    def __init__(self, file, sensor, verbose=False):
+        """Constructor: Creates traceReader to share data access across
+           functions."""
+        self.reader  = traceReader(file, verbose)
+        self.sensor  = sensor
+        self.verbose = verbose
 
-def traceFit(file, detname="", sensor="TES", event=0, channel=0, doplot=False):
-    """Get specified TES or FET trace (event and channel) from DMC file,
-       fit for shape and make overlay plots if requested."""
-    printVerbose(f"traceFit(file='{file}', detname='{detname}', event={event},"
-                 f" channel={channel}, sensor={sensor}, doplot={doplot})")
-
-    if (channel<0):
-        printVerbose("Processing all channels...")
-        allChans = traceReader.traceReader(file,getVerbose()).channels(sensor)
-        for ichan in range(len(allChans)):
-            traceFit(file, detname, sensor, event, ichan, doplot)
         return
 
-    # Following is for a single channel
-    global sensorType          # Record specified sensor for low-level functions
-    sensorType = sensor
+    # Useful diagnostic functions
 
-    if sensor == "TES":
-        traceFit_TES(file, detname, event, channel, doplot)
-    elif sensor == "FET":
-        traceFit_FET(file, detname, event, channel, doplot)
-    else:
-        print(f"Invalid sensor type '{sensor}' specified.")
-        exit(2)
+    def setVerbose(self, verbose=True):
+        self.verbose = verbose
 
+    def printVerbose(self, string):
+        if self.verbose: print(string)
+
+    def __repr__(self):
+        return f"<traceFitter('{self.reader.files}','{self.sensor}',{self.verbose})"
+
+    # Main fitting functions
+
+    def doFit(self, detname="", event=0, channel=0, doplot=False):
+        """Get specified TES or FET trace (event and channel) from DMC file,
+           fit for shape and make overlay plots if requested."""
+        self.printVerbose(f"doFit(detname='{detname}', event={event},"
+                          f" channel={channel}, doplot={doplot})")
+
+        # TODO: Retrieve all events and compute average of fit results
+        if (event<0):
+            print("fitTES cannot do multi-event averaging yet\n")
+            return
+
+        if (channel<0):
+            allChans = self.reader.channels(self.sensor)
+            self.printVerbose(f"Processing all {len(allChans)} channels...")
+            for ichan in range(len(allChans)):
+                self.doFit(detname, event, ichan, doplot)
+            return
+                
+        # Following is for a single channel
+        if self.sensor == "TES":
+            result = self.fitTES(detname, event, channel, doplot)
+            cname = self.reader.channels("TES")[channel]
+            self.reportTES(detname, cname, result)
+        elif self.sensor == "FET":
+            result = self.fitFET(detname, event, channel, doplot)
+            cname = self.reader.channels("FET")[channel]
+            self.reportFET(detname, cname, result)
+        else:
+            print(f"Invalid sensor type '{self.sensor}' specified.")
+
+        return
+
+    def fitTES(self, detname="", event=0, channel=0, doplot=False):
+        """Get specified TES trace (event and channel) from DMC file,
+           fit for shape.  Returns [Amplitude, tR, tF, Toffset, I0, IvsE].
+        """
+        self.printVerbose("fitTES same args as doFit()")  
+
+        bins  = self.reader.timeBins("TES")
+        trace = self.reader.TES(event, channel)
+    
+        #### Obtain figures of merit measurements for trace and template ####
+        results = self.fitTrace(bins, trace, self.TESshape, self.guessTES)
+
+        I0       = self.reader.TES_I0(event, channel)
+        PhononE  = self.reader.getPhononE(event)[channel]
+        IversusE = results[0]/PhononE	# (a, tR, tF, Toffset)
+
+        results = np.append(results, I0);
+        results = np.append(results, IversusE);
+
+        if doplot:
+            self.plots(detname, "TES", channel, bins, trace,
+                       self.TESshape(bins,*results))
+
+        return results
+
+    def fitFET(self, detname="", event=0, channel=0, doplot=False):
+        """Get specified FET trace (event and channel) from DMC file,
+        fit for shape.  Returns [Amplitude, invTd, invTr, Toffset, Ceff]."""
+        self.printVerbose("fitFET same args as traceFit()")
+
+        bins  = self.reader.timeBins("FET")
+        trace = self.reader.FET(event, channel)
+
+        #### Obtain figures of merit measurements for trace and template ####
+        results = self.fitTrace(bins, trace, self.FETshape, self.guessFET, False)
+
+        ChargeQ = reader.getChargeQ(event)[channel]
+        Ceff    = ChargeQ*1.60218e-4 / results[0]  # (a, invTd, invTr, timeShift)
+        # = Q/V, to get pF need 1e12 * coulomb/volt
+
+        results = np.append(results, Ceff)
+
+        if doplot:
+            self.plots(detname, "FET", channel, bins, trace,
+                       self.FETshape(bins,*results))
+
+        return results
+
+    # Report fit results for appropriate sensor type
+
+    def reportTES(self, detname, cname, results):
+        """Print TES fit results in format suitable for use in TESConstants."""
+        self.printVerbose(f"reportTES(detname='{detname}', cname='{cname}',"
+                          f" results={results}")
         
-def traceFit_TES(file, detname="", event=0, channel=0, doplot=False, report=True):
-    """Get specified TES trace (event and channel) from DMC file,
-       fit for shape.  Returns [Amplitude, tR, tF, Toffset, I0, IvsE]."""
-    printVerbose("traceFit_TES same args as traceFit()")  
+        a, tR, tF, offset, I0, IvsE = results     # Unroll results for reporting
+        print(f'# {detname} {cname} shape parameters (to generate templates)')
+        print(f'I0\t\t{I0:.4e} microampere')
+        print(f'IversusE\t{IvsE:.4e} microampere/eV')
+        print(f'riseTime\t{tR:.4e} us')
+        print(f'fallTime\t{tF:.4e} us')
+        print(f'Offset  \t{offset:.4e} us')
 
-    reader = traceReader.traceReader(file, getVerbose())
-
-    # TODO: Retrieve all events (do it in the reader) and compute average
-    if (event<0):
-        print("traceFit_TES cannot do multi-event averaging yet\n")
-        return
-
-    bins     = reader.timeBins("TES")
-    trace    = reader.TES(event, channel)
-    
-    #### Obtain figures of merit measurements for trace and template ####
-    results = trace_fitting(bins, trace, TESshape, guessTES)
-
-    I0       = reader.TES_I0(event, channel)
-    PhononE  = reader.getPhononE(event)[channel]
-    IversusE = results[0]/PhononE	# (a, tR, tF, timeShift)
-
-    results = np.append(results, I0);
-    results = np.append(results, IversusE);
-
-    if report:
-        cname = reader.channels("TES")[channel]
-        report_TESfit(detname, cname, results)
-
-    if doplot:
-        trace_plots(detname,"TES",channel,bins,trace,TESshape(bins,*results))
-
-    return results
-
-def report_TESfit(detname, cname, results):
-    """Print TES fit results in format suitable for use in TESConstants."""
-    printVerbose(f"report_TESfit(detname='{detname}', cname='{cname}',"
-                 f" results={results}")
-
-    a, tR, tF, offset, I0, IvsE = results     # Unroll results for reporting
-    print(f'# {detname} {cname} shape parameters (to generate templates)')
-    print(f'I0\t\t{I0:.4e} microampere')
-    print(f'IversusE\t{IvsE:.4e} microampere/eV')
-    print(f'riseTime\t{tR:.4e} us')
-    print(f'fallTime\t{tF:.4e} us')
-    print(f'Offset  \t{offset:.4e} us')
-    
-
-def traceFit_FET(file, detname="", event=0, channel=0, doplot=False, report=True):
-    """Get specified FET trace (event and channel) from DMC file,
-       fit for shape.  Returns [Amplitude, invTd, invTr, Toffset, Ceff]."""
-    printVerbose("traceFit_FET same args as traceFit()")
-
-    reader  = traceReader.traceReader(file, getVerbose())
-
-    # TODO: Retrieve all events (do it in the reader) and compute average
-    if (event<0):
-        print("traceFit_TES cannot do multi-event averaging yet\n")
-        return
-
-    bins    = reader.timeBins("FET")
-    trace   = reader.FET(event, channel)
-
-    #### Obtain figures of merit measurements for trace and template ####
-    results = trace_fitting(bins, trace, FETshape, guessFET, False)
-
-    ChargeQ = reader.getChargeQ(event)[channel]
-    Ceff    = ChargeQ*1.60218e-4 / results[0]	# (a, invTd, invTr, timeShift)
-    # = Q/V, to get pF need 1e12 * coulomb/volt
-
-    results = np.append(results, Ceff)
-
-    if report:
-        cname = reader.channels("FET")[channel]
-        report_FETfit(detname, cname, results)
-
-    if doplot:
-        trace_plots(detname,"FET",channel,bins,trace,FETshape(bins,*results))
-
-    return results
-
-def report_FETfit(detname, cname, results):
-    """Print FET fit results in format suitable for use in FETConstants."""
-    printVerbose(f"report_FETfit(detname='{detname}', cname='{cname}',"
-                 f" results={results}")
-    
-    a, invTd, invTr, offset, Ceff = results      # Unroll results for reporting
-    print(f'# {detname} {cname} shape parameters (to generate templates)')
-    print(f'templateCeff\t{Ceff:.4e} pF')
-    print(f'decayTime   \t{1./invTd:.4e} us\t# decayRate {invTd:.4e}/us')
-    print(f'recoveryTime\t{1./invTr:.4e} us\t# recoveryRate {invTr:.4e}/us')
-    print(f'Offset      \t{offset:.4e} us')
+    def reportFET(self, detname, cname, results):
+        """Print FET fit results in format suitable for use in FETConstants."""
+        self.printVerbose(f"reportFET(detname='{detname}', cname='{cname}',"
+                          f" results={results}")
+            
+        a, invTd, invTr, offset, Ceff = results      # Unroll results for reporting
+        print(f'# {detname} {cname} shape parameters (to generate templates)')
+        print(f'templateCeff\t{Ceff:.4e} pF')
+        print(f'decayTime   \t{1./invTd:.4e} us\t# decayRate {invTd:.4e}/us')
+        print(f'recoveryTime\t{1./invTr:.4e} us\t# recoveryRate {invTr:.4e}/us')
+        print(f'Offset      \t{offset:.4e} us')
             
 
-### IDEALIZED PULSE SHAPES FOR FITTING ###
+    # Idealized pulse shapes for fitting or plotting
 
-def TESshape(x, a, t_r, t_f, offset):
-    """Shape of flipped TES trace above baseline, with simple rise and
-       fall times.  'a' is observed peak value."""
-    tpeak = np.log(t_f/t_r) * t_f*t_r / (t_f-t_r)
-    peak = _TESshape(tpeak, t_f, t_r)
-    return (a/peak)*_TESshape(x-offset, t_f, t_r)
+    @classmethod
+    def TESshape(cls, x, a, t_r, t_f, offset):
+        """Shape of flipped TES trace above baseline, with simple rise and
+           fall times.  'a' is observed peak value."""
+        tpeak = np.log(t_f/t_r) * t_f*t_r / (t_f-t_r)
+        peak = cls._TESshape(tpeak, t_f, t_r)
+        return (a/peak)*cls._TESshape(x-offset, t_f, t_r)
 
-def _TESshape(t, t_r, t_f):
-    """Normalized, zero-aligned TES shape.  For internal use only."""
-    if np.isscalar(t):
-        return np.exp(-t/t_f)-np.exp(-t/t_r) if (t>=0) else 0.
-    else:
-        return np.array([_TESshape(ti,t_r,t_f) for ti in t])
-        
+    @classmethod
+    def _TESshape(cls, t, t_r, t_f):
+        """Normalized, zero-aligned TES shape.  For internal use only."""
+        if np.isscalar(t):
+            return np.exp(-t/t_f)-np.exp(-t/t_r) if (t>=0) else 0.
+        else:
+            return np.array([cls._TESshape(ti,t_r,t_f) for ti in t])
 
-def FETshape(x, a, invTd, invTr, offset):
-    """Shape of FET trace above baseline, with simple decay and recovery
-       rates. 'a' is observed peak value at t=0."""
-    peak = invTd - invTr
-    return (a/peak)*_FETshape(x-offset, invTd, invTr)
+    @classmethod
+    def FETshape(cls, x, a, invTd, invTr, offset):
+        """Shape of FET trace above baseline, with simple decay and recovery
+           rates. 'a' is observed peak value at t=0."""
+        peak = invTd - invTr
+        return (a/peak)*cls._FETshape(x-offset, invTd, invTr)
 
-def _FETshape(t, invTd, invTr):
-    """Normalized, zero-aligned FET shape.  For internal use only."""
-    if np.isscalar(t):
-        return (np.exp(-t*invTd)*invTd - np.exp(-t*invTr)*invTr) if (t>=0) else 0.
-    else:
-        return np.array([_FETshape(ti,invTd,invTr) for ti in t])
+    @classmethod
+    def _FETshape(cls, t, invTd, invTr):
+        """Normalized, zero-aligned FET shape.  For internal use only."""
+        if np.isscalar(t):
+            shape = np.exp(-t*invTd)*invTd - np.exp(-t*invTr)*invTr
+            return shape if (t>=0) else 0.
+        else:
+            return np.array([cls._FETshape(ti,invTd,invTr) for ti in t])
 
 
-### FITTING BOUNDS AND INITIAL VALUE ESTIMATES ###
+    # Fitting bounds and initial value estimates
 
-def guessTES(bins, trace):
-    """Returns initial guesses for TES fit rise and fall time for curve_fit."""
-    peak = trace.max()
-    ipeak = trace.argmax()
-    printVerbose(f"guessTES: peak {peak} @ bin {ipeak} (t {bins[ipeak]})")
+    def guessTES(self, bins, trace):
+        """Returns initial guesses for TES fit rise and fall time for curve_fit."""
+        peak = trace.max()
+        ipeak = trace.argmax()
+        self.printVerbose(f"guessTES: peak {peak} @ bin {ipeak} (t {bins[ipeak]})")
     
-    # Rise time: look for two e-foldings on rising side
-    rlo = np.nonzero(trace[:ipeak]<=0.1*peak)[0][-1]    # End of rising edge
-    rhi = np.nonzero(trace[:ipeak]<=0.2*peak*np.e)[0][-1]
-    riseGuess = (bins[rhi]-bins[rlo])
+        # Rise time: look for two e-foldings on rising side
+        rlo = np.nonzero(trace[:ipeak]<=0.1*peak)[0][-1]    # End of rising edge
+        rhi = np.nonzero(trace[:ipeak]<=0.2*peak*np.e)[0][-1]
+        riseGuess = (bins[rhi]-bins[rlo])
     
-    # Fall time: look for two e-foldings on falling side
-    flo = np.nonzero(trace[ipeak:]<=0.8*peak)[0][0]     # Start of falling tail
-    fhi = np.nonzero(trace[ipeak:]<=0.4*peak/np.e)[0][0]
-    fallGuess = (bins[fhi]-bins[flo])/2
+        # Fall time: look for two e-foldings on falling side
+        flo = np.nonzero(trace[ipeak:]<=0.8*peak)[0][0]     # Start of falling tail
+        fhi = np.nonzero(trace[ipeak:]<=0.4*peak/np.e)[0][0]
+        fallGuess = (bins[fhi]-bins[flo])/2
 
-    # Analytic peak position is where d/dt of pulse shape is zero
-    # ==> t_peak = tR * ln[(tF+tR)/tR]
-    tpeak = riseGuess * np.log((fallGuess+riseGuess)/riseGuess)
-    offsetGuess = bins[ipeak] - tpeak
+        # Analytic peak position is where d/dt of pulse shape is zero
+        # ==> t_peak = tR * ln[(tF+tR)/tR]
+        tpeak = riseGuess * np.log((fallGuess+riseGuess)/riseGuess)
+        offsetGuess = bins[ipeak] - tpeak
     
-    # Scale factor should be max of shape scaled by actual peak value
-    pmax = TESshape(tpeak, 1., riseGuess, fallGuess, 0.)
-    scaleGuess = peak / pmax
+        # Scale factor should be max of shape scaled by actual peak value
+        pmax = self.TESshape(tpeak, 1., riseGuess, fallGuess, 0.)
+        scaleGuess = peak / pmax
 
-    printVerbose(f"guessTES: scale {scaleGuess:.4e} rise {riseGuess:.4e},"
-                 f" fall {fallGuess:.4e}, offset {offsetGuess:.4e} us")
+        self.printVerbose(f"guessTES: scale {scaleGuess:.4e} rise {riseGuess:.4e},"
+                          f" fall {fallGuess:.4e}, offset {offsetGuess:.4e} us")
     
-    return scaleGuess, riseGuess, fallGuess, offsetGuess
+        return scaleGuess, riseGuess, fallGuess, offsetGuess
 
-def guessFET(bins, trace):
-    """Returns initial guesses for FET fit inverse decay and recovery times."""
+    def guessFET(self, bins, trace):
+        """Returns initial guesses for FET fit inverse decay and recovery times."""
     
-    peak = trace.max()
-    ipeak = trace.argmax()
-    printVerbose(f"guessFET: peak {peak} @ bin {ipeak} (t {bins[ipeak]})")
+        peak = trace.max()
+        ipeak = trace.argmax()
+        self.printVerbose(f"guessFET: peak {peak} @ bin {ipeak} (t {bins[ipeak]})")
 
-    # Peak should be at t=+binWidth (first bin after trigger)
-    istart = np.nonzero(bins>=0.)[0][0]+1
-    offsetGuess = ipeak - istart
+        # Peak should be at t=+binWidth (first bin after trigger)
+        istart = np.nonzero(bins>=0.)[0][0]+1
+        offsetGuess = ipeak - istart
     
-    # Decay time: look for second e-folding after the peak
-    dhi = np.nonzero(trace[ipeak:]>=peak/(2.*np.e))[0][-1]
-    decayGuess = 2./(bins[dhi]-bins[0])
+        # Decay time: look for second e-folding after the peak
+        dhi = np.nonzero(trace[ipeak:]>=peak/(2.*np.e))[0][-1]
+        decayGuess = 2./(bins[dhi]-bins[0])
     
-    # Recover time; look for second e-folding beyond minimum
-    tmin = trace.min()
-    imin = trace.argmin()
-    printVerbose(f" bottom {tmin} @ bin {imin} (t {bins[imin]})")
+        # Recovery time; look for second e-folding beyond minimum
+        tmin = trace.min()
+        imin = trace.argmin()
+        self.printVerbose(f" bottom {tmin} @ bin {imin} (t {bins[imin]})")
 
-    recoveryGuess = 0.
-    if tmin < 0:
-        tlast = trace[imin:].max()
-        rlo = np.nonzero(trace[imin:]>=tmin*0.8)[0][0]
-        rhi = np.nonzero(trace[imin:]>=min(tmin*0.4/np.e,tlast))[0][0]
-        recoveryGuess = 2./(bins[rhi]-bins[rlo])
-        if recoveryGuess < 0.1*decayGuess:
-            printVerbose(f" recoveryGuess {recoveryGuess} not physical.")
-            recoveryGuess = 0.
+        recoveryGuess = 0.
+        if tmin < 0:
+            tlast = trace[imin:].max()
+            rlo = np.nonzero(trace[imin:]>=tmin*0.8)[0][0]
+            rhi = np.nonzero(trace[imin:]>=min(tmin*0.4/np.e,tlast))[0][0]
+            recoveryGuess = 2./(bins[rhi]-bins[rlo])
+            if recoveryGuess < 0.1*decayGuess:
+                self.printVerbose(f" recoveryGuess {recoveryGuess} not physical.")
+                recoveryGuess = 0.
 
-    # FET function is [A/(D-R)]*(D*exp(-t*D) - R*exp(-t*R))
-    scaleGuess = peak / (decayGuess-recoveryGuess)
+        # FET function is [A/(D-R)]*(D*exp(-t*D) - R*exp(-t*R))
+        scaleGuess = peak / (decayGuess-recoveryGuess)
 
-    printVerbose(f"guessTES: scale {scaleGuess:.4e} decay {decayGuess:.4e} /us,"
-                 f" recovery {recoveryGuess:.4e} /us, offset {offsetGuess:.4e} us")
+        self.printVerbose(f"guessTES: scale {scaleGuess:.4e} decay {decayGuess:.4e} /us,"
+                          f" recovery {recoveryGuess:.4e} /us, offset {offsetGuess:.4e} us")
     
-    return scaleGuess, decayGuess, recoveryGuess, offsetGuess
+        return scaleGuess, decayGuess, recoveryGuess, offsetGuess
 
 
-def guessRange(guess=None):
-    """Compute allowed parameter ranges for fit based on initial guess values."""
-    printVerbose(f"guessRange(guess={guess})")
+    def guessRange(self, guess=None):
+        """Compute allowed parameter ranges for fit based on initial guess
+           values."""
+        self.printVerbose(f"guessRange(guess={guess})")
 
-    if guess is None or guess==0.:
-        return (-np.inf, np.inf)
+        if guess is None or guess==0.:
+            return (-np.inf, np.inf)
 
-    lower = 0.1*np.array(guess)
-    upper = 5.*np.array(guess)
-    bounds = (lower, upper)
+        lower = 0.1*np.array(guess)
+        upper = 5.*np.array(guess)
+        bounds = (lower, upper)
 
-    for i,g in enumerate(guess):       # Bounds can't both be zero!
-        if guess[i] == 0.:
-            bounds[0][i] = -np.inf
-            bounds[1][i] = np.inf
+        for i,g in enumerate(guess):       # Bounds can't both be zero!
+            if guess[i] == 0.:
+                bounds[0][i] = -np.inf
+                bounds[1][i] = np.inf
 
-    return bounds
+        return bounds
 
 
-def fittingRange(trace, cut=0.2):
-    """Return starting and ending points for pulse fit, corresponding to
-       'cut' height on either side of peak.  Assumes TES trace has been
-       baseline-subtracted and flipped."""
-    peak = max(trace)          # Peak Height
-    ipeak = trace.tolist().index(peak)
-    printVerbose(f"fittingRange: peak {peak} @ bin {ipeak}")
+    def fittingRange(self, trace, cut=0.2):
+        """Return starting and ending points for pulse fit, corresponding to
+           'cut' height on either side of peak.  Assumes TES trace has been
+           baseline-subtracted and flipped."""
+        peak = max(trace)          # Peak Height
+        ipeak = trace.tolist().index(peak)
+        self.printVerbose(f"fittingRange: peak {peak} @ bin {ipeak}")
 
-    ilo = 0
-    ihi = len(trace)
+        ilo = 0
+        ihi = len(trace)
     
-    global sensorType
-    if sensorType=="TES":
-        ilo = np.nonzero(trace[:ipeak]<=cut*peak)[0][-1]          # End of rising edge
-        ihi = ipeak+np.nonzero(trace[ipeak:]<=cut*peak)[0][0]     # Start of falling tail
-        printVerbose(f"fittingRange: TES I>{cut}*peak [{ilo}:{ihi}]")
-    elif sensorType=="FET":
-        ilo = trace.argmax()+1
-        ihi = ilo+2000          # Better to use initial guess of decay/recovery times
-        printVerbose(f"fittingRange: FET [{ilo}:{ihi}]")
+        if self.sensor=="TES":
+            ilo = np.nonzero(trace[:ipeak]<=cut*peak)[0][-1]          # End of rising edge
+            ihi = ipeak+np.nonzero(trace[ipeak:]<=cut*peak)[0][0]     # Start of falling tail
+            self.printVerbose(f"fittingRange: TES I>{cut}*peak [{ilo}:{ihi}]")
+        elif self.sensor=="FET":
+            ilo = trace.argmax()+1
+            ihi = ilo+2000          # TODO: Use initial guess of decay/recovery times
+            self.printVerbose(f"fittingRange: FET [{ilo}:{ihi}]")
 
-    return ilo, ihi
+        return ilo, ihi
 
 
-### General fitting function: sensor-specific info is in 'pulseShape' and 'guessFunc'
+    ### General fitting function: sensor-specific info is in 'pulseShape' and 'guessFunc'
 
-def trace_fitting(bins, trace, pulseShape, guessFunc=None, dobounds=True):
-    """Fits input trace with binning to TES or FET shape; using function
-       for initial values
-       Output: a      = scale factor from fit
-               t1     = rise time for TES, or decay time for FET
-               t2     = fall time for TES, or recovery time for FET
-               offset = t0 of best fit relative to t=0 bin
-    """
-    printVerbose(f"trace_fitting(bins, trace, pulseShape={pulseShape},"
-                 f" guessFunc={guessFunc}, dobounds={dobounds})")
+    def fitTrace(self, bins, trace, pulseShape, guessFunc=None, dobounds=True):
+        """Fits input trace with binning to TES or FET shape; using function
+           for initial values
+           Output: a      = scale factor from fit
+                   t1     = rise time for TES, or decay rate for FET
+                   t2     = fall time for TES, or recovery rate for FET
+                   offset = t0 of best fit relative to t=0 bin
+        """
+        self.printVerbose(f"fitTrace(bins, trace, pulseShape={pulseShape},"
+                          f" guessFunc={guessFunc}, dobounds={dobounds})")
     
-    start, end = fittingRange(trace)
+        start, end = self.fittingRange(trace)
 
-    guess = guessFunc(bins, trace) if guessFunc else None
-    bounds = guessRange(guess) if dobounds else (-np.inf,np.inf)
+        guess = guessFunc(bins, trace) if guessFunc else None
+        bounds = self.guessRange(guess) if dobounds else (-np.inf,np.inf)
     
-    printVerbose(f" range [{start}:{end}]\n guess {guess}")
-    if (dobounds): printVerbose(f"bounds {bounds}")
+        self.printVerbose(f" range [{start}:{end}]\n guess {guess}")
+        if (dobounds): self.printVerbose(f"bounds {bounds}")
                 
-    params, _ = curve_fit(pulseShape, bins[start:end], trace[start:end],
-                          p0=guess, bounds=bounds)
-    printVerbose(f" final result {params}")
+        params, _ = curve_fit(pulseShape, bins[start:end], trace[start:end],
+                              p0=guess, bounds=bounds)
+        self.printVerbose(f" final result {params}")
 
-    return params
+        return params
 
 
-def trace_plots(detname, sensor, channel, bins, trace, fitshape):
-    """Generate linear and log overlays of trace and fitted function."""
-    printVerbose(f"tracePlots(detname='{detname}', bins, trace, fitshape)")
+    def plot(self, detname, channel, bins, trace, fitshape):
+        """Generate linear and log overlays of trace and fitted function."""
+        self.printVerbose(f"plot(detname='{detname}', channel={channel},"
+                          f" bins, trace, fitshape)")
     
-    titleName = detname if detname else "Trace"
+        titleName = detname if detname else "Trace"
 
-    template = load_template(detname, channel, sensor)
+        template = self.template(detname, channel)
     
-    trace_overlay(titleName, sensor, bins, trace, fitshape, template)
-    plt.savefig(f"{titleName}-{sensor}_traceFit.eps", format='eps')
-    plt.savefig(f"{titleName}-{sensor}_traceFit.png")
+        self.overlay(titleName, bins, trace, fitshape, template)
+        plt.savefig(f"{titleName}-{self.sensor}_traceFit.eps", format='eps')
+        plt.savefig(f"{titleName}-{self.sensor}_traceFit.png")
 
     
-def trace_overlay(detname, sensor, bins, trace, fitshape, template):
-    """Plots TES or FET trace (log and linear) with specified binning, overlaid
-       with fitted shape and template detname argument used for plot title."""
-    printVerbose(f"trace_overlay(detname='{detname}', sensor='{sensor}',"
-                 f" bins, trace, fitshape, template)")
+    def overlay(self, detname, bins, trace, fitshape, template):
+        """Plots TES or FET trace (log and linear) with specified binning, overlaid
+           with fitted shape and template detname argument used for plot title."""
+        self.printVerbose(f"overlay(detname='{detname}', bins, trace,"
+                          f" fitshape, template)")
     
-    units  = { "TES": "\mu A",
-               "FET": "mV" }
-    xlim   = { "TES": [ [max(-100,bins.min()),min(3000,bins.max())],
-                        [max(-10,bins.min()),min(300,bins.max())] ],
-               "FET": [ [max(-100,bins.min()),min(1000,bins.max())],
-                        [max(-10,bins.min()),min(300,bins.max())] ] }
-    yscale = { "TES": ["log","linear"],
-               "FET": ["linear","linear"] }
+        units  = { "TES": "\mu A",
+                   "FET": "mV" }
+        xlim   = { "TES": [ [max(-100,bins.min()),min(3000,bins.max())],
+                            [max(-10,bins.min()),min(300,bins.max())] ],
+                   "FET": [ [max(-100,bins.min()),min(1000,bins.max())],
+                            [max(-10,bins.min()),min(300,bins.max())] ] }
+        yscale = { "TES": ["log","linear"],
+                   "FET": ["linear","linear"] }
 
-    start, end = fittingRange(trace)
-    fig, axes = plt.subplots(1, 2, figsize=(12*0.7, 4*0.7), dpi=200)
-    for plot in range(2):
-        currentAxis = axes.flatten()[plot]
+        start, end = self.fittingRange(trace)
+        fig, axes = plt.subplots(1, 2, figsize=(12*0.7, 4*0.7), dpi=200)
+        for plot in range(2):
+            currentAxis = axes.flatten()[plot]
 
-        if template is not None:
-            currentAxis.plot(bins,template*max(trace),lw=1,ls='--',
-                             color='black', label='Template')
+            if template is not None:
+                currentAxis.plot(bins,template*max(trace),lw=1,ls='--',
+                                 color='black', label='Template')
 
-        currentAxis.plot(bins, trace,lw=1,ls='-',color='red',label='Simulation')
-        currentAxis.plot(bins[start:end], fitshape[start:end], label='Fit')
+            currentAxis.plot(bins, trace,lw=1,ls='-',color='red',label='Simulation')
+            currentAxis.plot(bins[start:end], fitshape[start:end], label='Fit')
         
-        currentAxis.set_xlabel(r"Time [$\mathrm{\mu s}$]")
-        currentAxis.set_ylabel(r"Amplitude [$\mathrm{"+units[sensor]+"}$]")
-        currentAxis.legend()
-        currentAxis.set_xlim(xlim[sensor][plot])
-        currentAxis.set_yscale(yscale[sensor][plot])
+            currentAxis.set_xlabel(r"Time [$\mathrm{\mu s}$]")
+            currentAxis.set_ylabel(r"Amplitude [$\mathrm{"+units[self.sensor]+"}$]")
+            currentAxis.legend()
+            currentAxis.set_xlim(xlim[self.sensor][plot])
+            currentAxis.set_yscale(yscale[self.sensor][plot])
 
-    if detname: plt.title(detname)
-    plt.tight_layout()
+        if detname: plt.title(detname)
+        plt.tight_layout()
 
 
-def load_template(detname, chan, sensor):
-    """Extract channel template for specified detector, as Numpy array."""
-    printVerbose(f"load_template(detname='{detname}', chan={chan}, sensor={sensor})")
+    def template(self, detname, chan):
+        """Extract channel template for specified detector, as Numpy array."""
+        self.printVerbose(f"template(detname='{detname}', chan={chan})")
     
-    if detname is None or detname == "": return None
+        if detname is None or detname == "": return None
     
-    templatePath = f"{CDMS_SUPERSIM}/CDMSgeometry/data/dmc/{detname}/{sensor}Templates"
-    if not os.path.isfile(templatePath): return None
+        templatePath = f"{CDMS_SUPERSIM}/CDMSgeometry/data/dmc/{detname}/{self.sensor}Templates"
+        if not os.path.isfile(templatePath): return None
 
-    colname = {"TES":"Traces", "FET":"Trace"}[sensor]
-    templates = pd.read_csv(templatePath,sep="\t")
-    template = templates.loc[chan,colname].split()
-    template = np.array([float(i) for i in template])
+        colname = {"TES":"Traces", "FET":"Trace"}[self.sensor]
+        templates = pd.read_csv(templatePath,sep="\t")
+        template = templates.loc[chan,colname].split()
+        template = np.array([float(i) for i in template])
 
-    printVerbose(" got template from {} with {} bins".format(templatePath, len(template)))
-    return template
+        self.printVerbose(f" got template from {templatePath} with"
+                          f" {len(template)} bins")
+        return template
 
 
 ### MAIN PROGRAM ###
 
 def main():
-    settings = getargs()
-    traceFit(**settings)
+    args = getargs()
+
+    # Split full argument list to avoid passing unrecognized parameters
+    ctor = { k:args[k] for k in ['file','sensor','verbose'] }
+    fitter = traceFitter(**ctor)
+
+    fitargs = { k:args[k] for k in args.keys()-ctor.keys() }
+    fitter.doFit(**fitargs)
 
 def getargs():
     """Returns arguments from the command line as a dictionary, for easier use.
-       Output: setttings = { 'file':    <name-of-DMC-file>,
-                             'detname': <detname, from -d>,
-                             'event':   <event number, from -e>,
-                             'channel': <channel number, from -c>,
-                             'sensor':  <sensor type, from -s>,
-                             'doplot':  <True|False>, from -p> }
+       Output: settings = { 'file':    <name-of-DMC-file>,
+                             'detname': <detector type>, from -d>,
+                             'event':   <event number>, from -e>,
+                             'channel': <channel number>, from -c>,
+                             'sensor':  <sensor type>, from -s>,
+                             'doplot':  <True|False>, from -p>,
+                             'verbose': <True|False>, from -v>,
+                           }
     """
     import getopt
     try:
@@ -456,6 +484,7 @@ def getargs():
                 'channel': 0,
                 'sensor':  "TES",     # TES or FET
                 'doplot':  False,     # Results only, no figures
+                'verbose': False,
                }
 
     for o,a in opts:
@@ -473,9 +502,9 @@ def getargs():
         elif o == '-s':
             settings['sensor'] = a
         elif o == '-v':
-            setVerbose(True)
+            settings['verbose'] = True
 
-    printVerbose(f"settings = {settings}")
+    if settings['verbose']: print(f"settings = {settings}")
         
     return settings
 
