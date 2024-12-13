@@ -96,18 +96,13 @@ class traceFitter:
         self.printVerbose(f"doFit(detname='{detname}', event={event},"
                           f" channel={channel}, doplot={doplot})")
 
-        # TODO: Retrieve all events and compute average of fit results
-        if (event<0):
-            print("fitTES cannot do multi-event averaging yet\n")
-            return
-
         if (channel<0):
             allChans = self.reader.channels(self.sensor)
             self.printVerbose(f"Processing all {len(allChans)} channels...")
             for ichan in range(len(allChans)):
                 self.doFit(detname, event, ichan, doplot)
             return
-                
+
         # Following is for a single channel
         if self.sensor == "TES":
             result = self.fitTES(detname, event, channel, doplot)
@@ -124,13 +119,22 @@ class traceFitter:
 
     def fitTES(self, detname="", event=0, channel=0, doplot=False):
         """Get specified TES trace (event and channel) from DMC file,
-           fit for shape.  Returns [Amplitude, tR, tF, Toffset, I0, IvsE].
-        """
-        self.printVerbose("fitTES same args as doFit()")  
+           fit for shape.  All-event averaging requested by event<0.
+           Returns [Amplitude, tR, tF, Toffset, I0, IvsE]."""
+        self.printVerbose(f"fitTES(detname='{detname}', event={event},"
+                          f" channel={channel}, doplot={doplot})")
 
+        if (event<0):		# Average results from all events in file
+            events = self.reader.getEvents(0)	# FIXME: Need detector number!
+            resultSet = np.array([ self.fitTES(detname,ev,channel,False)
+                                   for ev in np.int32(events) ])
+            results = np.average(resultSet, axis=0)	# Average each column
+            return results
+
+        # Below is single-event processing
         bins  = self.reader.timeBins("TES")
         trace = self.reader.TES(event, channel)
-    
+
         #### Obtain figures of merit measurements for trace and template ####
         results = self.fitTrace(bins, trace, self.TESshape, self.guessTES)
 
@@ -149,7 +153,8 @@ class traceFitter:
 
     def fitFET(self, detname="", event=0, channel=0, doplot=False):
         """Get specified FET trace (event and channel) from DMC file,
-        fit for shape.  Returns [Amplitude, invTd, invTr, Toffset, Ceff]."""
+           fit for shape.  All-event averaging requested by event<0.
+           Returns [Amplitude, invTd, invTr, Toffset, Ceff]."""
         self.printVerbose("fitFET same args as traceFit()")
 
         bins  = self.reader.timeBins("FET")
@@ -220,7 +225,7 @@ class traceFitter:
     def FETshape(cls, x, a, invTd, invTr, offset):
         """Shape of FET trace above baseline, with simple decay and recovery
            rates. 'a' is observed peak value at t=0."""
-        peak = invTd - invTr
+        peak = invTr**2 - invTd**2
         return (a/peak)*cls._FETshape(x-offset, invTd, invTr)
 
     @classmethod
@@ -316,10 +321,12 @@ class traceFitter:
         upper = 5.*np.array(guess)
         bounds = (lower, upper)
 
-        for i,g in enumerate(guess):       # Bounds can't both be zero!
-            if guess[i] == 0.:
+        for i,g in enumerate(guess):
+            if guess[i] == 0.:       	# Bounds can't both be zero!
                 bounds[0][i] = -np.inf
                 bounds[1][i] = np.inf
+            if guess[i] < 0.:		# Negative bounds need to be swapped
+                bounds[0][i],bounds[1][i] = bounds[1][i],bounds[0][i]
 
         return bounds
 
