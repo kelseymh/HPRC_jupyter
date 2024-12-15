@@ -1,9 +1,21 @@
 #!/usr/bin/env python3
-#
-# Processes TES or FET trace from input file, fits for shape parameters
-#
-# Michael Kelsey <kelsey@tamu.edu>, Texas A&M University 2023
-#
+
+"""Processes TES or FET trace from input file, fits for shape parameters
+
+   Command: trace_fitter.py [options]
+
+   Use trace_fitter.py -h for details about command line arguments.
+
+   Jupyter: from trace_fitter import traceFitter
+            myfit = traceFitter("ROOT-FILE","TES",[True|False]) 
+            myfit.doFit("iZIP5",<event>,<channum>,[True|False])
+
+   Constructor True/False controls verbosity (diagnostic messages).
+   doFit True/False controls whether overplay plots are created.
+
+   Michael Kelsey <kelsey@tamu.edu>, Texas A&M University 2023
+"""
+
 # 20231210  Adapted from Warren Perry's trace_fitter.ipynb notebook
 # 20240110  Adding support for FET traces, RDF input instead of root_numpy
 # 20240115  Add diagnostic output, improve TES vs. FET configurations
@@ -31,8 +43,10 @@ Options: -d <det>   Detector type name (iZIP5, NF-C, etc.)
          -p         [Optional] Generate plots of fit results
          -v         [Optional] Verbose output
 
-NOTE: Using `-e -1` will presume that all events have identical energy.  If
-      they do not, the averaging will introduce biases.
+NOTE: When "-e -1" is specified, each event is fit individually, and resulting
+      parameter values are averages to get a final result.  This does not
+      cleanly suppress noise/fluctuations in the traces, but avoids problems
+      of trace normalization and time shifting (c.f. template generation).
 
 Requires: Numpy, Matplotlib, SciPy, ROOT""")
 
@@ -92,7 +106,12 @@ class traceFitter:
 
     def doFit(self, detname="", event=0, channel=0, doplot=False):
         """Get specified TES or FET trace (event and channel) from DMC file,
-           fit for shape and make overlay plots if requested."""
+           fit for shape and make overlay plots if requested.
+
+           Arguments: detname	Detector name string used for output.
+                      event	Event to process; -1 averages all events.
+                      channel	Channel index; -1 iterates all channels.
+                      doplot	True to generate overlay of trace and fit."""
         self.printVerbose(f"doFit(detname='{detname}', event={event},"
                           f" channel={channel}, doplot={doplot})")
 
@@ -119,7 +138,7 @@ class traceFitter:
 
     def fitTES(self, detname="", event=0, channel=0, doplot=False):
         """Get specified TES trace (event and channel) from DMC file,
-           fit for shape.  All-event averaging requested by event<0.
+           fit for shape.  Arguments same as doFit().
            Returns [Amplitude, tR, tF, Toffset, I0, IvsE]."""
         self.printVerbose(f"fitTES(detname='{detname}', event={event},"
                           f" channel={channel}, doplot={doplot})")
@@ -153,7 +172,7 @@ class traceFitter:
 
     def fitFET(self, detname="", event=0, channel=0, doplot=False):
         """Get specified FET trace (event and channel) from DMC file,
-           fit for shape.  All-event averaging requested by event<0.
+           fit for shape.  Arguments same as doFit().
            Returns [Amplitude, invTd, invTr, Toffset, Ceff]."""
         self.printVerbose("fitFET same args as traceFit()")
 
@@ -209,6 +228,8 @@ class traceFitter:
     def TESshape(cls, x, a, t_r, t_f, offset):
         """Shape of flipped TES trace above baseline, with simple rise and
            fall times.  'a' is observed peak value."""
+        # Peak is where d(TESshape)/dt = 0;
+        # Interestingly, this is where FETshape crosses zero
         tpeak = np.log(t_f/t_r) * t_f*t_r / (t_f-t_r)
         peak = cls._TESshape(tpeak, t_f, t_r)
         return (a/peak)*cls._TESshape(x-offset, t_f, t_r)
@@ -231,6 +252,7 @@ class traceFitter:
     @classmethod
     def _FETshape(cls, t, invTd, invTr):
         """Normalized, zero-aligned FET shape.  For internal use only."""
+        # This is derivative of TESshape; discontinuous @ t=0
         if np.isscalar(t):
             shape = np.exp(-t*invTd)*invTd - np.exp(-t*invTr)*invTr
             return shape if (t>=0) else 0.
@@ -333,8 +355,8 @@ class traceFitter:
 
     def fittingRange(self, trace, cut=0.2):
         """Return starting and ending points for pulse fit, corresponding to
-           'cut' height on either side of peak.  Assumes TES trace has been
-           baseline-subtracted and flipped."""
+           'cut' height on either side of peak.  Assumes TES trace is flipped
+           and baseline-subtracted, or FET trace is charge-flipped."""
         peak = max(trace)          # Peak Height
         ipeak = trace.tolist().index(peak)
         self.printVerbose(f"fittingRange: peak {peak} @ bin {ipeak}")
@@ -347,8 +369,8 @@ class traceFitter:
             ihi = ipeak+np.nonzero(trace[ipeak:]<=cut*peak)[0][0]     # Start of falling tail
             self.printVerbose(f"fittingRange: TES I>{cut}*peak [{ilo}:{ihi}]")
         elif self.sensor=="FET":
-            ilo = trace.argmax()+1
-            ihi = ilo+2000          # TODO: Use initial guess of decay/recovery times
+            ilo = trace.argmax()+1	# Start fit just after peak bin
+            ihi = ilo+2000		# TODO: Find far end after recovery
             self.printVerbose(f"fittingRange: FET [{ilo}:{ihi}]")
 
         return ilo, ihi
