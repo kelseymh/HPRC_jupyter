@@ -2,6 +2,7 @@
 ## Usage: from imports import *
 ##
 ## 20241202  Add environment variable handling for CDMS and Internet stuff
+## 20250204  Add CDataFrame
 
 from rawio.IO import *
 import math
@@ -18,6 +19,7 @@ from scipy.optimize import curve_fit
 import ROOT
 global np
 import numpy as np
+from cats.cdataframe import CDataFrame
 
 import sys
 import os, os.path 
