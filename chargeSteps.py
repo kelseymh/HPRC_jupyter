@@ -40,6 +40,11 @@ class chargeSteps:
         self.data = { "U": self.__useFiles("U",infix),
                       "E": self.__useFiles("E",infix)
                     }
+
+        # Collect all of the keys from both lists
+        if self.voltage is None:
+            self.voltage = sorted(set([*self.data["U"]]+[*self.data["E"]]))
+            
         self.vmin = min(self.voltage)
         self.vmax = max(self.voltage)
         return
@@ -51,13 +56,18 @@ class chargeSteps:
 
         flist = {}
         allf = glob.glob(f'{self.datadir}/{self.det}-*V{vtype}{infix}_5125*_0*.root')
+            
         if len(allf)>0:
-            if not self.voltage:
-                self.voltage = sorted([int(re.search(r'-(\d+)V.',f).groups()[0])
-                                       for f in allf])
-            flist = {v:glob.glob(f'{self.datadir}/{self.det}-{v}V{vtype}{infix}_5125*_0*.root')
-                     for v in self.voltage}
+            if self.voltage is not None: 
+                allv = self.voltage
+            else:
+                allv = sorted([int(re.search(r'-(\d+)V.',f).groups()[0]) for f in allf])
 
+            flist = {v:glob.glob(f'{self.datadir}/{self.det}-{v}V{vtype}{infix}_5125*_0*.root')
+                     for v in allv}
+
+        # Remove empty entries from flist for clarity
+        flist = {v:f for v,f in flist.items() if len(f)>0}
         return flist
 
     def __flatDataset(self, vtype):
@@ -161,6 +171,14 @@ EPot:    {json.dumps(self.data["E"],indent=4)}
         branches = ["DetType","TypeName","Material","Radius","Height","Voltage"]
         geom = CDataFrame(f"G4SettingsInfoDir/Geometry", files[0]).AsNumpy(branches)
         return geom
+
+    def getJobInfo(self, files=None):
+        """Load job information (events, time) from specified files."""
+        if files is None: return None
+            
+        branches = ["Events","Requested","Elapsed","Threads","UserCPU"]
+        jobinfo = CDataFrame("G4SettingsInfoDir/runtime", files).AsNumpy(branches)
+        return jobinfo
             
     @staticmethod
     def flattenList(files):
@@ -281,7 +299,7 @@ EPot:    {json.dumps(self.data["E"],indent=4)}
         if not fileset or len(fileset)==0: return
     
         for v in reversed(self.voltage):
-            if not fileset[v]: continue
+            if v not in fileset: continue
             hits = self.getHits(fileset[v])["StepLen"]
             plt.hist(hits*1e3,label=f"{v}V",bins=50)
             hits = None        # Ensure that allocated memory is freed
@@ -300,7 +318,7 @@ EPot:    {json.dumps(self.data["E"],indent=4)}
         binning = []     # Will contain result of first (vmax) plot
     
         for v in reversed(self.voltage):
-            if not fileset[v]: continue
+            if v not in fileset: continue
             hits = self.getHits(fileset[v])
 
             if len(binning)==0:
@@ -416,21 +434,24 @@ EPot:    {json.dumps(self.data["E"],indent=4)}
         if not fileset: return None
             
         maxstep = []
+        vlist = []
         for v in self.voltage:
+            if v not in fileset: continue            
             hits = self.getHits(fileset[v])
             maxstep.append(hits["Step"][hits["Step"]<stepcut].max())
+            vlist.append(v)
             hits = None
                 
-        return maxstep
+        return vlist,maxstep
 
     def PlotStepsVsVoltage(self, vtype, stepcut=1e99):
         """Scatter of maximum steps vs. voltage onto current plot.
            Optional vrange should be (vmin, vmax)."""
-        maxStep = self.StepsVsVData(vtype, stepcut)
-        if not maxStep: return
+        vlist,maxStep = self.StepsVsVData(vtype, stepcut)
+        if not maxStep or len(maxStep)==0: return
 
         legend = self.det + " " + self.TitleField(vtype)
-        plt.scatter(self.voltage,maxStep,label=legend)
+        plt.scatter(vlist,maxStep,label=legend)
 
         ylbl = "Maximum Number of Steps"
         if stepcut<1e99: ylbl += f" (below {self.ValUnits(stepcut)})"
@@ -442,11 +463,11 @@ EPot:    {json.dumps(self.data["E"],indent=4)}
 
     def PlotStepsVsField(self, vtype, stepcut=1e99):
         """Scatter of maximum steps, with voltage scaled by thickness."""
-        maxStep = self.StepsVsVData(vtype, stepcut)
-        if not maxStep: return
+        vlist,maxStep = self.StepsVsVData(vtype, stepcut)
+        if not maxStep or len(maxStep)==0: return
 
         thick = self.getGeometry()["Height"][0]
-        efield = np.array(self.voltage)/thick
+        efield = np.array(vlist)/thick
         
         legend = self.det + " " + self.TitleField(vtype)
         plt.scatter(efield,maxStep,label=legend)
@@ -481,6 +502,49 @@ EPot:    {json.dumps(self.data["E"],indent=4)}
         fname = "MaxSteps"
         if stepcut<1e9: fname += f"below{self.ValUnits(stepcut)}"
         elif suffix != '': fname += '-'+suffix
+        fname += f"-Voltage"
+        plt.savefig(self.Filename(fname))
+        return
+
+    def CPUvsVData(self, vtype):
+        """Extract CPU time per event as Numpy array vs. voltage."""
+        fileset = self.data[vtype]
+        if not fileset: return None
+            
+        cpu = []
+        vlist = []
+        for v in self.voltage:
+            if v not in fileset: continue            
+            hits = self.getJobInfo(fileset[v])
+            cpu.append(hits["UserCPU"]/hits["Events"])
+            vlist.append(v)
+            hits = None
+                
+        return vlist,cpu
+        
+    def PlotCPUvsVoltage(self, vtype):
+        """Scatter plot of CPU time per event vs. voltage."""
+        vlist,cpu = self.CPUvsVData(vtype)
+        if not cpu or len(cpu)==0: return
+
+        legend = self.det + " " + self.TitleField(vtype)
+        plt.scatter(vlist,cpu,label=legend)
+        plt.ylabel("CPU time per event [s]")
+        plt.xlabel("Bias Voltage [V]")
+
+        cpu = None
+        return
+
+    def CPUvsVoltage(self, suffix=''):
+        """Overlay scatter plots of CPU/event vs. voltage."""
+        self.PlotCPUvsVoltage("E")
+        self.PlotCPUvsVoltage("U")
+
+        plt.title(f"{self.det} Charged Tracks")
+        plt.legend()
+
+        fname = "CPUtime"
+        if suffix != '': fname += '-'+suffix
         fname += f"-Voltage"
         plt.savefig(self.Filename(fname))
         return
