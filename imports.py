@@ -22,8 +22,8 @@ import pandas as pd
 pd.set_option("display.max_row", 100)
 print(datetime.now(),"pandas done")
 
-from pylab import *
-print(datetime.now(),"pylab done")
+###from pylab import *
+print(datetime.now(),"pylab skipped (overwrites datetime?)")
 
 import scipy.io as sio
 from scipy import interpolate
