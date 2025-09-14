@@ -31,8 +31,8 @@ help(chargeSteps)
 
 # SuperSim develop runs (noLimits)
 print(datetime.now(),"Using noLimits samples",flush=True)
-data = chargeSteps('data/EPot_highV/noLimits', 'HV100mm')
-##data = chargeSteps('data/EPot_highV/noLimits', 'iZIP5')
+##data = chargeSteps('data/EPot_highV/noLimits', 'HV100mm')
+data = chargeSteps('data/EPot_highV/noLimits', 'iZIP5')
 ##data = chargeSteps('data/EPot_highV/noLimits', 'HVeV')
 
 # New intervalley scattering code (G4CMP-404)
