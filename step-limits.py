@@ -40,6 +40,7 @@ for vtype in ["E","U"]:
     for v in data.voltage:
         if v not in dset: continue
 
+        print(datetime.now(),f" loading {v}V{vtype} files...",flush=True)
         geom,events,hits = phonon_eff.load(dset[v])
         lbl = f"{v}V"
 
@@ -68,4 +69,4 @@ for vtype in effset.keys():
     ax.scatter(effset[vtype]["Volts"],eff[vtype]["Eff"],label=data.title(vtype))
 
 ax.legend()
-plt.savefig("Efficiency-Voltage_allDet.png")
+plt.savefig(data.datadir+"/Efficiency-Voltage_allDet.png")
