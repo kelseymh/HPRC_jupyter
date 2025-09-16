@@ -55,7 +55,7 @@ class chargeSteps:
            and list of voltages are passed from constructor."""
 
         flist = {}
-        allf = glob.glob(f'{self.datadir}/{self.det}-*V{vtype}{infix}_5125*_0*.root')
+        allf = glob.glob(f'{self.datadir}/{self.det}*-V{vtype}{infix}_5125*_0*.root')
             
         if len(allf)>0:
             if self.voltage is not None: 
@@ -63,7 +63,7 @@ class chargeSteps:
             else:
                 allv = sorted([int(re.search(r'-(\d+)V.',f).groups()[0]) for f in allf])
 
-            flist = {v:glob.glob(f'{self.datadir}/{self.det}-{v}V{vtype}{infix}_5125*_0*.root')
+            flist = {v:glob.glob(f'{self.datadir}/{self.det}*-{v}V{vtype}{infix}_5125*_0*.root')
                      for v in allv}
 
         # Remove empty entries from flist for clarity
