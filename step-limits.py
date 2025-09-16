@@ -46,14 +46,12 @@ for vtype in ["E","U"]:
         print(datetime.now(),f" loading {v}V{vtype} files...",flush=True)
         geom,events,hits = phonon_eff.load(dset[v])
         lbl = f"{v}V"
+        ax.histogram(vents["PhEff"],bins=150,range=(0.9,1.05),label=lbl,alpha=0.3)
 
         effhist,bins = np.histogram(events["PhEff"],bins=150,range=(0.9,1.05))
-        ax.plot(effhist,bins,label=lbl,alpha=0.3)
-
-        effset[vtype]["Volts"] += v
-
         imax = np.argmax(effhist)
         effset[vtype]["Eff"] += (bins[imax]+bins[imax+1])/2.
+        effset[vtype]["Volts"] += v
 
         geom=None	# Avoid memory leaks
         events=None
