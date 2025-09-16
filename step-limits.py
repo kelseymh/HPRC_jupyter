@@ -8,10 +8,13 @@
 from datetime import datetime
 
 print(datetime.now(),"step-limits.py starting...",flush=True)
-from imports import *
 from chargeSteps import chargeSteps
+print(datetime.now(),"chargeSteps done",flush=True)
 from dmc import phonon_eff
+print(datetime.now(),"phonon_eff done",flush=True)
 import numpy as np
+print(datetime.now(),"numpy done",flush=True)
+from imports import *
 
 print(datetime.now(),"Imports completed.",flush=True)
 

@@ -44,9 +44,9 @@ class chargeSteps:
         # Collect all of the keys from both lists
         if self.voltage is None:
             self.voltage = sorted(set([*self.data["U"]]+[*self.data["E"]]))
-            
-        self.vmin = min(self.voltage)
-        self.vmax = max(self.voltage)
+
+        self.vmin = min(self.voltage) if len(self.voltage)>0 else 0.
+        self.vmax = max(self.voltage) if len(self.voltage)>0 else 0.
         return
 
     def __useFiles(self, vtype, infix):
@@ -55,8 +55,8 @@ class chargeSteps:
            and list of voltages are passed from constructor."""
 
         flist = {}
-        allf = glob.glob(f'{self.datadir}/{self.det}*-V{vtype}{infix}_5125*_0*.root')
-            
+        allf = glob.glob(f'{self.datadir}/{self.det}*-*V{vtype}{infix}_5125*_0*.root')
+
         if len(allf)>0:
             if self.voltage is not None: 
                 allv = self.voltage
