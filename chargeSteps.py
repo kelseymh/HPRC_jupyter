@@ -5,7 +5,7 @@ from scipy.optimize import curve_fit
 import numpy as np
 from cats.cdataframe import CDataFrame
 import math
-import os, os.path
+import os
 import glob
 import re
 

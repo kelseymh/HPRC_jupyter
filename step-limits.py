@@ -16,8 +16,8 @@ import numpy as np
 print(datetime.now(),"Imports completed.",flush=True)
 
 print(datetime.now(),"Using 10keV samples",flush=True)
-data = chargeSteps('data/EPot_highV/10keVER', 'HV100mm')
-##data = chargeSteps('data/EPot_highV/10keVER', 'iZIP5')
+data = chargeSteps('data/EPot_highV/10keVER', 'HV100mm', infix='-max*k')
+##data = chargeSteps('data/EPot_highV/10keVER', 'iZIP5', infix='-max*k')
 
 print(datetime.now(),"CPU time",flush=True)
 data.CPUvsVoltage()
