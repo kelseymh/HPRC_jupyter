@@ -14,7 +14,10 @@ from dmc import phonon_eff
 print(datetime.now(),"phonon_eff done",flush=True)
 import numpy as np
 print(datetime.now(),"numpy done",flush=True)
-from imports import *
+import matplotlib.pyplot as plt
+print(datetime.now(),"matplotlib done",flush=True)
+###from imports import *
+print(datetime.now(),"imports skipped",flush=True)
 
 print(datetime.now(),"Imports completed.",flush=True)
 
@@ -36,9 +39,9 @@ for vtype in ["E","U"]:
     if len(dset)==0: continue
 
     _,ax = plt.subplots(figsize=(4.5,3))
-    ax.title(f"{data.det} 10 keV ER with Charge Step Limit")
-    ax.xlabel("Collection Efficiency (PhononE/Eexpected)")
-    ax.ylabel("Events / 0.01%")
+    ax.set_title(f"{data.det} 10 keV ER with Charge Step Limit")
+    ax.set_xlabel("Collection Efficiency (PhononE/Eexpected)")
+    ax.set_ylabel("Events / 0.01%")
 
     for v in data.voltage:
         if v not in dset: continue
@@ -46,12 +49,12 @@ for vtype in ["E","U"]:
         print(datetime.now(),f" loading {v}V{vtype} files...",flush=True)
         geom,events,hits = phonon_eff.load(dset[v])
         lbl = f"{v}V"
-        ax.histogram(vents["PhEff"],bins=150,range=(0.9,1.05),label=lbl,alpha=0.3)
+        ax.hist(events["PhEff"],bins=150,range=(0.9,1.05),label=lbl,alpha=0.3)
 
         effhist,bins = np.histogram(events["PhEff"],bins=150,range=(0.9,1.05))
         imax = np.argmax(effhist)
-        effset[vtype]["Eff"] += (bins[imax]+bins[imax+1])/2.
-        effset[vtype]["Volts"] += v
+        effset[vtype]["Eff"].append((bins[imax]+bins[imax+1])/2.)
+        effset[vtype]["Volts"].append(v)
 
         geom=None	# Avoid memory leaks
         events=None
@@ -62,12 +65,13 @@ for vtype in ["E","U"]:
 # End loop over data sets
 
 _,ax = plt.subplots(figsize=(4.5,3))
-ax.title("10 keV ER Efficiency with Charge Step Limit")
-ax.xlabel("Voltage [V]")
-ax.ylabel("Collection Efficiency (mode)")
+ax.set_title("10 keV ER Efficiency with Charge Step Limit")
+ax.set_xlabel("Voltage [V]")
+ax.set_ylabel("Collection Efficiency (mode)")
 
 for vtype in effset.keys():
-    ax.scatter(effset[vtype]["Volts"],eff[vtype]["Eff"],label=data.title(vtype))
+    ax.scatter(effset[vtype]["Volts"],effset[vtype]["Eff"],
+               label=data.Title(vtype))
 
 ax.legend()
-plt.savefig(data.datadir+"/Efficiency-Voltage_allDet.png")
+plt.savefig(data.datadir+f"/Efficiency-Voltage_{data.det}.png")
