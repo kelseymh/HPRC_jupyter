@@ -589,7 +589,7 @@ EPot:    {json.dumps(self.data["E"],indent=4)}
 
             _,events,_ = phonon_eff.load(fileset[v])
             plt.hist(events["PhEff"], bins=60, range=(0.95,1.01),
-                     lbl=f"{v}V", alpha=0.3)
+                     label=f"{v}V", alpha=0.3)
 
             events = None
 
