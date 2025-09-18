@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 import numpy as np
 from cats.cdataframe import CDataFrame
+from dmc import phonon_eff
 import math
 import os
 import glob
@@ -213,11 +214,13 @@ EPot:    {json.dumps(self.data["E"],indent=4)}
         if stepcut<1e99: return f"{stepcut:.0f}"
         return ""
         
-    def Title(self, vtype, volt=None):
+    def Title(self, vtype, volt=None, subtitle=None):
         """Construct consistent plot title string for detector type and bias."""
         flong = self.TitleField(vtype)
         if volt is not None: flong = f'{volt}V {flong}'
-        return ' '.join((self.det,flong))
+        title = ' '.join((self.det,flong))
+        if subtitle is not None: title += "\n" + subtitle
+        return title
 
     def Filename(self, name, vtype="", volt=None):
         """Construct consistent filenames with detector type and bias."""
@@ -248,6 +251,8 @@ EPot:    {json.dumps(self.data["E"],indent=4)}
 
         # Color trajectories based on charge
         colors = { 1: 'tab:blue', -1: 'tab:orange' }
+
+        plt.figure()		# Start a new figure
 
         # Start with detector outline to get full coordinates
         self.DetectorRZ(fileset[volt])
@@ -298,14 +303,16 @@ EPot:    {json.dumps(self.data["E"],indent=4)}
         fileset = self.data[vtype]
         if not fileset or len(fileset)==0: return
     
+        plt.figure()		# Start a new figure
+        plt.title(self.Title(vtype))
+        plt.xlabel('Trajectory length [mm]')
+
         for v in reversed(self.voltage):
             if v not in fileset: continue
             hits = self.getHits(fileset[v])["StepLen"]
             plt.hist(hits*1e3,label=f"{v}V",bins=50)
             hits = None        # Ensure that allocated memory is freed
         
-        plt.title(self.Title(vtype))
-        plt.xlabel('Trajectory length [mm]')
         plt.legend()
         plt.savefig(self.Filename("TrajLength",vtype))
         return
@@ -315,8 +322,12 @@ EPot:    {json.dumps(self.data["E"],indent=4)}
         fileset = self.data[vtype]
         if not fileset: return
 
+        plt.figure()		# Start a new figure
+        plt.title(self.Title(vtype))
+        plt.xlabel('Number of Steps per track')
+
         binning = []     # Will contain result of first (vmax) plot
-    
+  
         for v in reversed(self.voltage):
             if v not in fileset: continue
             hits = self.getHits(fileset[v])
@@ -328,8 +339,6 @@ EPot:    {json.dumps(self.data["E"],indent=4)}
             
             hits = None        # Ensure that allocated memory is freed
         
-        plt.title(self.Title(vtype))
-        plt.xlabel('Number of Steps per track')
         plt.legend()
         plt.savefig(self.Filename("Steps",vtype))
         return
@@ -339,6 +348,11 @@ EPot:    {json.dumps(self.data["E"],indent=4)}
         fileset = self.data[vtype]
         if not fileset or not v in fileset: return
 
+        plt.figure()		# Start a new figure
+        plt.title(self.Title(vtype,v))
+        plt.xlabel('Flight distance [mm]')
+        plt.ylabel('Trajectory length [mm]')
+
         hits = self.getHits(fileset[v])
         elec = hits["Charge"]<0
         hole = hits["Charge"]>0
@@ -346,10 +360,6 @@ EPot:    {json.dumps(self.data["E"],indent=4)}
         plt.scatter(hits["Flight"][elec]*1e3,hits["StepLen"][elec]*1e3,label='Electrons')
         plt.scatter(hits["Flight"][hole]*1e3,hits["StepLen"][hole]*1e3,label='Holes')
         plt.legend()
-    
-        plt.title(self.Title(vtype,v))
-        plt.xlabel('Flight distance [mm]')
-        plt.ylabel('Trajectory length [mm]')
         plt.savefig(self.Filename("PathLengths",vtype,v))
 
         hits = None        # Ensure that allocated memory is freed
@@ -360,10 +370,13 @@ EPot:    {json.dumps(self.data["E"],indent=4)}
         fileset = self.data[vtype]
         if not fileset or not v in fileset: return
         
-        hits = self.getHits(fileset[v])
-        plt.hist((hits["StepLen"]/hits["Flight"]),bins=50)
+        plt.figure()		# Start a new figure
         plt.title(self.Title(vtype,v))
         plt.xlabel('Trajectory/Flight')
+
+        hits = self.getHits(fileset[v])
+        plt.hist((hits["StepLen"]/hits["Flight"]),bins=50)
+
         plt.savefig(self.Filename("PathRatio",vtype,v))
 
         hits = None        # Ensure that allocated memory is freed
@@ -374,14 +387,17 @@ EPot:    {json.dumps(self.data["E"],indent=4)}
         fileset = self.data[vtype]
         if not fileset or not v in fileset: return
         
+        plt.figure()		# Start a new figure
+        plt.title(self.Title(vtype,v))
+        plt.xlabel('Number of Steps per track')
+        plt.ylabel('Trajectory/Flight')
+
         hits = self.getHits(fileset[v])
         elec = hits["Charge"]<0
         hole = hits["Charge"]>0
         plt.scatter(hits["Step"][elec],(hits["StepLen"]/hits["Flight"])[elec],label='Electrons')
         plt.scatter(hits["Step"][hole],(hits["StepLen"]/hits["Flight"])[hole],label='Holes')
-        plt.title(self.Title(vtype,v))
-        plt.xlabel('Number of Steps per track')
-        plt.ylabel('Trajectory/Flight')
+
         plt.legend()
         plt.savefig(self.Filename("Path-Steps",vtype,v))
 
@@ -420,6 +436,8 @@ EPot:    {json.dumps(self.data["E"],indent=4)}
         """Final position (r,z) colored by number of steps."""
         fileset = self.data[vtype]
         if not fileset or not v in fileset: return
+
+        plt.figure()		# Start a new figure
 
         self.DetectorRZ(fileset[v])
         self.StepsVsRZ(fileset[v],"Final",stepcut)
@@ -492,11 +510,12 @@ EPot:    {json.dumps(self.data["E"],indent=4)}
     def StepsVsVoltage(self, stepcut=1e99, curve=None, suffix=''):
         """Overlaid scatter plots of maximum steps vs. voltage.
            Optional curve should be an np.Polynomial."""
+        plt.figure()		# Start a new figure
+        plt.title(f"{self.det} Charged Tracks")
+
         self.PlotStepsVsVoltage("E", stepcut)
         self.PlotStepsVsVoltage("U", stepcut)
         self.PlotVoltageCurve(curve, stepcut)
-
-        plt.title(f"{self.det} Charged Tracks")
         plt.legend()
 
         fname = "MaxSteps"
@@ -506,10 +525,12 @@ EPot:    {json.dumps(self.data["E"],indent=4)}
         plt.savefig(self.Filename(fname))
         return
 
+    # TODO:  Implement fitting and bounding here as functions
+
     def CPUvsVData(self, vtype):
         """Extract CPU time per event as Numpy array vs. voltage."""
         fileset = self.data[vtype]
-        if not fileset: return None
+        if not fileset or len(fileset)==0: return None,None
             
         cpu = []
         vlist = []
@@ -532,15 +553,18 @@ EPot:    {json.dumps(self.data["E"],indent=4)}
         plt.ylabel("CPU time per event [s]")
         plt.xlabel("Bias Voltage [V]")
 
+        vlist = None
         cpu = None
         return
 
     def CPUvsVoltage(self, suffix=''):
         """Overlay scatter plots of CPU/event vs. voltage."""
+        plt.figure()		# Start a new figure
+        plt.title(f"{self.det} Charged Tracks")
+
         self.PlotCPUvsVoltage("E")
         self.PlotCPUvsVoltage("U")
 
-        plt.title(f"{self.det} Charged Tracks")
         plt.legend()
 
         fname = "CPUtime"
@@ -549,6 +573,85 @@ EPot:    {json.dumps(self.data["E"],indent=4)}
         plt.savefig(self.Filename(fname))
         return
 
-    # TODO:  Implement fitting and bounding here as functions
+
+    def OverlayEffVsVoltage(self, vtype, subtitle=None):
+        """Overlay histograms of collection efficiency vs. voltage."""
+        fileset = self.data[vtype]
+        if not fileset or len(fileset)==0: return
+
+        plt.figure()		# Start a new figure
+        plt.title(self.Title(vtype,subtitle=subtitle))
+        plt.xlabel("Collection Efficiency (PhononE/Eexpected)")
+        plt.ylabel("Events / 0.1%")
+
+        for v in self.voltage:
+            if v not in fileset or len(fileset[v])==0: continue
+
+            _,events,_ = phonon_eff.load(fileset[v])
+            plt.hist(events["PhEff"], bins=60, range=(0.95,1.01),
+                     lbl=f"{v}V", alpha=0.3)
+
+            events = None
+
+        plt.legend(loc="upper left")
+        plt.savefig(self.Filename("Efficiency",vtype))
+        return
+
+
+    def EffVsVData(self, vtype):
+        """Extract collection efficiency as Numpy array vs. voltage."""
+        fileset = self.data[vtype]
+        if not fileset or len(fileset)==0: return None,None
+
+        eff = []
+        vlist = []
+        for v in self.voltage:
+            if v not in fileset or len(fileset[v])==0: continue
+
+            _,events,_ = phonon_eff.load(fileset[v])
+            effhist,bins = np.histogram(events["PhEff"], bins=600,
+                                        range=(0.75,1.05))
+
+            imax = np.argmax(effhist)
+            eff.append((bins[imax]+bins[imax+1])/2.)
+            vlist.append(v)
+            
+            events = None
+            bins = None
+
+        return vlist,eff
+        
+    def PlotEffVsVoltage(self, vtype):
+        """Scatter plot of collection efficiency vs. voltage."""
+        vlist,eff = self.EffVsVData(vtype)
+        if not eff or len(eff)==0: return
+
+        legend = self.det + " " + self.TitleField(vtype)
+        plt.scatter(vlist,cpu,label=legend)
+        plt.ylabel("Collection Efficiency (PhononE/Eexpected)")
+        plt.xlabel("Bias Voltage [V]")
+
+        vlist = None
+        eff = None
+        return
+
+    def EffVsVoltage(self, suffix='', subtitle=None):
+        """Overlay scatter plots of collection efficiency vs. voltage."""
+        plt.figure()		# Start a new figure
+        title = self.det+" 10 keV ER Efficiency"
+        if subtitle is not None: title += "\n"+subtitle
+        plt.title(title)
+
+        self.PlotEffVsVoltage("E")
+        self.PlotEffVsVoltage("U")
+
+        plt.ylim(0.94,1.02)
+        plt.legend(loc="lower left")
+
+        fname = "Efficiency"
+        if suffix != '': fname += '-'+suffix
+        fname += f"-Voltage"
+        plt.savefig(self.Filename(fname))
+        return
 
 ### END OF chargeSteps CLASS
