@@ -32,9 +32,9 @@ for data in (hv100mm,izip5):
     data.CPUvsVoltage()
 
     print(datetime.now(),"Collection Efficiency",flush=True)
-    data.OverlayEffVsVoltage("E","with 50M Charge Step Limit")
-    data.OverlayEffVsVoltage("U","with 50M Charge Step Limit")
-    data.EffVsVoltage("with 50M Charge Step Limit")
+    data.OverlayEffVsVoltage("E",subtitle="with 50M Charge Step Limit")
+    data.OverlayEffVsVoltage("U",subtitle="with 50M Charge Step Limit")
+    data.EffVsVoltage(subtitle="with 50M Charge Step Limit")
     # End loop over detector types
 
 ### TO DO:  Combine hv100mm and izip5 into single set of efficiency plots
