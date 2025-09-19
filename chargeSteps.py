@@ -627,7 +627,7 @@ EPot:    {json.dumps(self.data["E"],indent=4)}
         if not eff or len(eff)==0: return
 
         legend = self.det + " " + self.TitleField(vtype)
-        plt.scatter(vlist,cpu,label=legend)
+        plt.scatter(vlist,eff,label=legend)
         plt.ylabel("Collection Efficiency (PhononE/Eexpected)")
         plt.xlabel("Bias Voltage [V]")
 
