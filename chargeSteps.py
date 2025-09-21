@@ -101,6 +101,13 @@ EPot:    {json.dumps(self.data["E"],indent=4)}
 
         npv = np.array(self.voltage)
         return npv[(vmin<=npv) & (npv<=vmax)]
+
+    # Correct for integer overflow of Geant4 CurrentStep counter
+    @staticmethod
+    def fixStepOverflow(steps):
+        """Adjust values of input Numpy array for integer overflow."""
+        steps[(steps<0)] += 2**32
+        return steps
         
     # Set up N-tuple with individual step information
     def getSteps(self, files):
@@ -109,6 +116,8 @@ EPot:    {json.dumps(self.data["E"],indent=4)}
 
         branches = ["EventNum","Track","Step","StepLen","Charge","PName"]
         steps = CDataFrame("G4SimDir/mcHitCounter", files).AsNumpy(branches)
+        self.fixStepOverflow(steps["Step"])
+
         return steps
 
     # Set up N-tuple with computed path length quantities
@@ -118,6 +127,8 @@ EPot:    {json.dumps(self.data["E"],indent=4)}
         
         branches = ["EventNum","Track","Step","StepLen","X1","Y1","Z1","X3","Y3","Z3","Charge","PName"]
         hits = CDataFrame("G4SimDir/mczip0", files).AsNumpy(branches)
+        self.fixStepOverflow(hits["Step"])
+
         hits["Flight"] = np.sqrt((hits["X3"]-hits["X1"])**2+(hits["Y3"]-hits["Y1"])**2+(hits["Z3"]-hits["Z1"])**2)
         hits["R1"] = np.sqrt(hits["X1"]**2+hits["Y1"]**2)
         hits["R3"] = np.sqrt(hits["X3"]**2+hits["Y3"]**2)

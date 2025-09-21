@@ -25,9 +25,10 @@ help(chargeSteps)
 
 # New TrackLimiter runs (G4CMP-358)
 ##print(datetime.now(),"Using G4CMP358 samples",flush=True)
-##data = chargeSteps('data/EPot_highV/G4CMP358', 'HV100mm', '-max*k')
+##data = chargeSteps('data/EPot_highV/G4CMP358', 'HV100mm', '-max*k',
+##                   volts=[1,4,10,25,50,75,100,200])
 ##data = chargeSteps('data/EPot_highV/G4CMP358', 'iZIP5', '-max*k',
-##                   volts=[1,4,10,25,50,75,100,200,300,400,500,600])
+##                   volts=[1,4,10,25,50,75,100,200])
 
 # SuperSim develop runs (noLimits)
 print(datetime.now(),"Using noLimits samples",flush=True)
@@ -68,18 +69,21 @@ data.PathLengths("U", data.vmax)
 print(datetime.now(),"StepsVsFinalRZ('E')...",flush=True)
 data.StepsVsFinalRZ("E", 10)
 data.StepsVsFinalRZ("E", 100)
-data.StepsVsFinalRZ("E", 200)
+#data.StepsVsFinalRZ("E", 200)
 #data.StepsVsFinalRZ("E", 300)
 #data.StepsVsFinalRZ("E", 400)
 data.StepsVsFinalRZ("E", data.vmax)
 
 print(datetime.now(),"StepsVsFinalRZ('U')...",flush=True)
 data.StepsVsFinalRZ("U", 10)
-#data.StepsVsFinalRZ("U", 100)
+data.StepsVsFinalRZ("U", 100)
 #data.StepsVsFinalRZ("U", 200)
 #data.StepsVsFinalRZ("U", 500)
 #data.StepsVsFinalRZ("U", 800)
 data.StepsVsFinalRZ("U", data.vmax)
+
+print(datetime.now(),"CPU usage...",flush=True)
+data.CPUvsVoltage()
 
 print(datetime.now(),"Fitting uniform field...",flush=True)
 vlist,maxUhit = np.array(data.StepsVsVData("U"))
