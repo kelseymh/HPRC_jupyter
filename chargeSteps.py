@@ -537,7 +537,10 @@ EPot:    {json.dumps(self.data["E"],indent=4)}
         for v in self.voltage:
             if v not in fileset: continue            
             hits = self.getJobInfo(fileset[v])
-            cpu.append(hits["UserCPU"]/hits["Events"])
+            vcpu = hits["UserCPU"]/hits["Events"]
+            if isinstance(vcpu,np.ndarray): vcpu = np.average(vcpu)
+            
+            cpu.append(vcpu)
             vlist.append(v)
             hits = None
                 
@@ -546,8 +549,6 @@ EPot:    {json.dumps(self.data["E"],indent=4)}
     def PlotCPUvsVoltage(self, vtype):
         """Scatter plot of CPU time per event vs. voltage."""
         vlist,cpu = self.CPUvsVData(vtype)
-        if not cpu or len(cpu)==0: return
-
         legend = self.det + " " + self.TitleField(vtype)
         plt.scatter(vlist,cpu,label=legend)
         plt.ylabel("CPU time per event [s]")
