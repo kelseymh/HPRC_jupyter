@@ -10,9 +10,10 @@
 from datetime import datetime
 
 print(datetime.now(),"stuck_charges.py starting...",flush=True)
-from imports import *
 from chargeSteps import chargeSteps
 import numpy as np
+import matplotlib.pylot as plt
+from scipy.optimize import curve_fit
 
 print(datetime.now(),"Imports completed.",flush=True)
 help(chargeSteps)
