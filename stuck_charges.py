@@ -12,39 +12,37 @@ from datetime import datetime
 print(datetime.now(),"stuck_charges.py starting...",flush=True)
 from chargeSteps import chargeSteps
 import numpy as np
-import matplotlib.pylot as plt
+import matplotlib.pyplot as plt
 from scipy.optimize import curve_fit
 
 print(datetime.now(),"Imports completed.",flush=True)
-help(chargeSteps)
 
 # SuperSim V16-00-00 + elog/2125 runs (pick one!)
-##print(datetime.now(),"Using V16-00-00 samples",flush=True)
 ##data = chargeSteps('data/EPot_highV/V16-00-00/100eh', 'HV100mm')
 ##data = chargeSteps('data/EPot_highV/V16-00-00/100eh-HV100mmSi', 'HV100mmSi')
 ##data = chargeSteps('data/EPot_highV/V16-00-00/100eh-HVeV', 'HVeV')
 
 # New TrackLimiter runs (G4CMP-358)
-##print(datetime.now(),"Using G4CMP358 samples",flush=True)
 ##data = chargeSteps('data/EPot_highV/G4CMP358', 'HV100mm', '-max*k',
 ##                   volts=[1,4,10,25,50,75,100,200])
-##data = chargeSteps('data/EPot_highV/G4CMP358', 'iZIP5', '-max*k',
-##                   volts=[1,4,10,25,50,75,100,200])
+data = chargeSteps('data/EPot_highV/G4CMP358', 'iZIP5', '-max*k',
+                   volts=[1,4,10,25,50,75,100,200])
 
 # SuperSim develop runs (noLimits)
-print(datetime.now(),"Using noLimits samples",flush=True)
-##data = chargeSteps('data/EPot_highV/noLimits', 'HV100mm')
-data = chargeSteps('data/EPot_highV/noLimits', 'iZIP5')
+##data = chargeSteps('data/EPot_highV/noLimits', 'HV100mm',
+##                   volts=[1,4,10,25,50,75,100,200])
+##data = chargeSteps('data/EPot_highV/noLimits', 'iZIP5',
+##                   volts=[1,4,10,25,50,75,100,200])
 ##data = chargeSteps('data/EPot_highV/noLimits', 'HVeV')
 
 # New intervalley scattering code (G4CMP-404)
-##print(datetime.now(),"Using G4CMP404 samples",flush=True)
 ##data = chargeSteps('data/EPot_highV/G4CMP404','HV100mm','-newIV')
 
 # Fix to TimeStepper for stopping voltage (G4CMP-482)
-##print(datetime.now(),"Using G4CMP482 samples",flush=True)
 ##data = chargeSteps('data/EPot_highV/G4CMP482','HV100mm','-stepperFix')
 ##data = chargeSteps('data/EPot_highV/G4CMP482','HV100mm','-max*k')
+
+print(datetime.now(),f"Using {data.datadir} {data.det} samples", flush=True)
 
 print(datetime.now(),"CPUvsVoltage...",flush=True)
 data.CPUvsVoltage()
@@ -82,9 +80,6 @@ data.StepsVsFinalRZ("U", 100)
 #data.StepsVsFinalRZ("U", 500)
 #data.StepsVsFinalRZ("U", 800)
 data.StepsVsFinalRZ("U", data.vmax)
-
-print(datetime.now(),"CPU usage...",flush=True)
-data.CPUvsVoltage()
 
 print(datetime.now(),"Fitting uniform field...",flush=True)
 vlist,maxUhit = np.array(data.StepsVsVData("U"))
