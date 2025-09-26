@@ -24,7 +24,8 @@ bounce100 = datadir+"/bounce100_51250925_0000.root"
 def trajectories(files,prefix="bounces",title="All tracks"):
     """Make and save plot of all trajectories in given dataset; 'name'
        is used for output filename, 'title' is used for plotting."""
-
+    print("Generating",prefix,"YZ trajectories",flush=True)
+    
     # Zero bounce case, whole detector
     plt.figure()
     plt.title(title)

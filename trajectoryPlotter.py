@@ -13,12 +13,20 @@ import matplotlib.colors as colors
 from matplotlib.lines import Line2D
 from cats.cdataframe import CDataFrame
 
+# Debugging output (can set with trajectoryPlotter.debug = True
+debug = False
+def report(*args,**kwargs):
+    """Print debugging messages when flag is set True."""
+    if debug: print("trajectoryPlotter:", *args, **kwargs, flush=True)
+
 
 # Load trajectories for given file(s)
 def getTracks(files):
     """Load mcTrajectory TTree from specified file or files."""
     if not files or len(files)==0: return None
-        
+
+    report("getTracks",files)
+    
     # Older datasets use mcHitCounter instead of mcTrajectory
     try:
         trajCDF = CDataFrame("G4SimDir/mcTrajectory", files)
@@ -37,7 +45,8 @@ def getTracks(files):
 
 def fixStepOverflow(steps):
     """Correct for integer overflow of Geant4 CurrentStep counter."""
-    steps["Step"][(steps<0)] += 2**32
+    overflows = steps["Step"]<0
+    steps["Step"][overflows] += 2**32
     return steps
 
 def convertToMM(steps):
@@ -53,8 +62,10 @@ def listTraj(steps):
     events = np.unique(steps["EventNum"])
     for ev in events:
         isEv = steps["EventNum"]==ev
-        evTrk.append((ev,trk) for trk in np.unique(steps["Track"][isEv]))
+        for trk in np.unique(steps["Track"][isEv]):
+            evTrk.append((ev,trk))
 
+    report("listTraj:",evTrk)
     return evTrk
 
 def trajCut(steps, event, track):
@@ -64,33 +75,39 @@ def trajCut(steps, event, track):
 # Build plottable trajectory for given track
 def trajectoryXYZ(steps, event, track):
     """Construct three arrays of X, Y and Z coordinates for track."""
-    theTrack = trajCut(event,track)
-    step0 = steps["Step"]==(steps["Step"][theTrack].min())
+    report("trajectoryXYZ",event,track)
+    
+    theTrack = trajCut(steps,event,track)
+    trajX = [ steps["X1"][theTrack][0] ] + steps["X3"][theTrack]
+    trajY = [ steps["Y1"][theTrack][0] ] + steps["Y3"][theTrack]
+    trajZ = [ steps["Z1"][theTrack][0] ] + steps["Z3"][theTrack]
 
-    trajX = [ steps["X1"][theTrack & step0] ]
-    trajY = [ steps["Y1"][theTrack & step0] ]
-    trajZ = [ steps["Z1"][theTrack & step0] ]
-    for i in steps["Step"][theTrack]:
-        stepi = steps["Step"]==i
-        trajX.append(steps["X3"][theTrack & stepi])
-        trajY.append(steps["Y3"][theTrack & stepi])
-        trajZ.append(steps["Z3"][theTrack & stepi])
-
+    report("  returning",len(trajZ),"points")
     return trajX,trajY,trajZ
 
 def trajectoryRZ(steps, event, track):
     """Construct two arrays of R,Z coordinates for track."""
-    theTrack = trajCut(event,track)
-    step0 = steps["Step"]==(steps["Step"][theTrack].min())
+    report("trajectoryRZ",event,track)
+    
+    theTrack = trajCut(steps,event,track)
+    trajR = [ steps["R1"][theTrack][0] ] + steps["R3"][theTrack]
+    trajZ = [ steps["Z1"][theTrack][0] ] + steps["Z3"][theTrack]
 
-    trajR = [ steps["R1"][theTrack & step0] ]
-    trajZ = [ steps["Z1"][theTrack & step0] ]
-    for i in steps["Step"][theTrack]:
-        stepi = steps["Step"]==i
-        trajR.append(steps["R3"][theTrack & stepi])
-        trajZ.append(steps["Z3"][theTrack & stepi])
-
+    report("  returning",len(trajZ),"points")
     return trajR,trajZ
+
+def trajectoryChg(steps, event, track):
+    """Construct array of track charge for use as color."""
+    report("trajectoryChg",event,track)
+
+    theTrack = trajCut(steps,event,track)
+    chg = steps["Charge"][theTrack][0]		# -1,0,+1 -> 0,1,2 for colors
+    report("  got chg =",chg,"int(chg+1) =",int(chg+1))
+    
+    trajQ = [int(chg+1)]*(len(steps["Step"][theTrack]))
+
+    report("  returning",len(trajQ),"points")
+    return trajQ
 
 
 # Utilities for mapping track types to colors in each plot
@@ -98,14 +115,14 @@ def trajectoryRZ(steps, event, track):
 def chgColors():
     """Return a colormap for orange e-, green phonon, cyan h+.  To use
        this, use 'c=steps["Charge"]+1, cmap=chgColors()', in plot."""
-    return colors.ListedColormap(['o','g','c'])
+    return colors.ListedColormap(['y','g','c'])
 
 def trackLegend():
     """Generate a custom legend for the three trajectory colors."""
     cmap = chgColors()
-    types = [Line2D([0],[0], lw=4, color=cmap(0), label="Electron"),
-             Line2D([0],[0], lw=4, color=cmap(1), label="Phonon"),
-             Line2D([0],[0], lw=4, color=cmap(2), label="Hole")]
+    types = [Line2D([0],[0], lw=3, color=cmap(0), label="Electron"),
+             Line2D([0],[0], lw=3, color=cmap(1), label="Phonon"),
+             Line2D([0],[0], lw=3, color=cmap(2), label="Hole")]
     plt.legend(handles=types)
 
 
@@ -114,18 +131,23 @@ def trackLegend():
 def drawXYZ(steps, event, track):
     """Plot 3D trajectory in current figure."""
     x,y,z = trajectoryXYZ(steps, event, track)
-    plt.scatter(x,y,z,c=steps["Charge"][+1,cmap=chgColors())
+    plt.scatter(x,y,z,s=1,c=trajectoryChg(steps,event,track),cmap=chgColors())
 
 def drawXZ(steps, event, track):
     """Plot 2D trajectory projected onto X-Z plane."""
     x,y,z = trajectoryXYZ(steps, event, track)
-    plt.scatter(x,z,c=steps["Charge"]+1,cmap=chgColors())
+    plt.scatter(x,z,s=1,c=trajectoryChg(steps,event,track),cmap=chgColors())
 
 def drawYZ(steps, event, track):
     """Plot 2D trajectory projected onto Y-Z plane."""
     x,y,z = trajectoryXYZ(steps, event, track)
-    plt.scatter(y,z,c=steps["Charge"]+1,cmap=chgColors())
+    plt.scatter(y,z,s=1,c=trajectoryChg(steps,event,track),cmap=chgColors())
 
+def drawRZ(steps, event, track):
+    """plot pseudo-trajectory projected onto R-Z plane."""
+    r,z = trajectoryRZ(steps, event, track)
+    plt.scatter(r,z,s=1,c=trajectoryChg(steps,event,track),cmap=chgColors())
+   
 def drawAllXZ(steps):
     """Plot all of the trajectories in the dataset in X-Z plane."""
     for evTrk in listTraj(steps):
@@ -135,3 +157,8 @@ def drawAllYZ(steps):
     """Plot all of the trajectories in the dataset in Y-Z plane."""
     for evTrk in listTraj(steps):
         drawYZ(steps, *evTrk)
+
+def drawAllRZ(steps):
+    """Plot all of the trajectories in the dataset in R-Z plane."""
+    for evTrk in listTraj(steps):
+        drawRZ(steps, *evTrk)
