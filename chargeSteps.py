@@ -167,6 +167,8 @@ EPot:    {json.dumps(self.data["E"],indent=4)}
         
         branches=["EventNum","Track","Step","StepLen","X1","Y1","Z1","X3","Y3","Z3","Charge","PName"]
         traj = trajCDF.Filter(filter).AsNumpy(branches)
+        self.fixStepOverflow(traj["Step"])
+
         traj["R1"] = np.sqrt(traj["X1"]**2+traj["Y1"]**2)
         traj["R3"] = np.sqrt(traj["X3"]**2+traj["Y3"]**2)
         return traj
