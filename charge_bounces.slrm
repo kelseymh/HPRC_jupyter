@@ -1,0 +1,13 @@
+#!/bin/bash -e
+#
+# Run charge_bounces.py as a batch job, since it takes forever in Jupyter
+# and even running on a login node.
+#
+# 20250925  Michael Kelsey -- copied from step-limits.slrm
+
+#SBATCH --time=8:00:00
+#SBATCH --mem=60GB
+#SBATCH --ntasks=1 --cpus-per-task=5
+#SBATCH -o charge_bounces.log
+
+./charge_bounces.py

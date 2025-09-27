@@ -1,0 +1,13 @@
+#!/bin/bash -e
+#
+# Run step-limits.py as a batch job, since it takes forever in Jupyter
+# and even running on a login node.
+#
+# 20250911  Michael Kelsey
+
+#SBATCH --time=8:00:00
+#SBATCH --mem=60GB
+#SBATCH --ntasks=1 --cpus-per-task=5
+#SBATCH -o step-limits.log
+
+./step-limits.py
