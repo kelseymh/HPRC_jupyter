@@ -97,17 +97,12 @@ def trajectoryRZ(steps, event, track):
     return trajR,trajZ
 
 def trajectoryChg(steps, event, track):
-    """Construct array of track charge for use as color."""
+    """Get integer charges of selected track (-1, +1, or 0)."""
     report("trajectoryChg",event,track)
 
     theTrack = trajCut(steps,event,track)
-    chg = steps["Charge"][theTrack][0]		# -1,0,+1 -> 0,1,2 for colors
-    report("  got chg =",chg,"int(chg+1) =",int(chg+1))
-    
-    trajQ = [int(chg+1)]*(len(steps["Step"][theTrack]))
-
-    report("  returning",len(trajQ),"points")
-    return trajQ
+    chg = steps["Charge"][theTrack][0]
+    return int(chg)
 
 
 # Utilities for mapping track types to colors in each plot
@@ -131,22 +126,26 @@ def trackLegend():
 def drawXYZ(steps, event, track):
     """Plot 3D trajectory in current figure."""
     x,y,z = trajectoryXYZ(steps, event, track)
-    plt.scatter(x,y,z,s=1,c=trajectoryChg(steps,event,track),cmap=chgColors())
+    qcol = 1+trajectoryChg(steps, event, track)
+    plt.scatter(x,y,z,s=1,color=chgColors()(qcol))
 
 def drawXZ(steps, event, track):
     """Plot 2D trajectory projected onto X-Z plane."""
     x,y,z = trajectoryXYZ(steps, event, track)
-    plt.scatter(x,z,s=1,c=trajectoryChg(steps,event,track),cmap=chgColors())
+    qcol = 1+trajectoryChg(steps, event, track)
+    plt.scatter(x,z,s=1,color=chgColors()(qcol))
 
 def drawYZ(steps, event, track):
     """Plot 2D trajectory projected onto Y-Z plane."""
     x,y,z = trajectoryXYZ(steps, event, track)
-    plt.scatter(y,z,s=1,c=trajectoryChg(steps,event,track),cmap=chgColors())
+    qcol = 1+trajectoryChg(steps, event, track)
+    plt.scatter(y,z,s=1,color=chgColors()(qcol))
 
 def drawRZ(steps, event, track):
     """plot pseudo-trajectory projected onto R-Z plane."""
     r,z = trajectoryRZ(steps, event, track)
-    plt.scatter(r,z,s=1,c=trajectoryChg(steps,event,track),cmap=chgColors())
+    qcol = 1+trajectoryChg(steps, event, track)
+    plt.scatter(r,z,s=1,color=chgColors()(qcol))
    
 def drawAllXZ(steps):
     """Plot all of the trajectories in the dataset in X-Z plane."""

@@ -7,7 +7,7 @@
 #
 # 20250925  Michael Kelsey
 
-import trajectoryPlotter
+import trajectoryPlotter as tplot
 import matplotlib.pyplot as plt
 
 plt.rcParams['figure.figsize'] = (5,3.75)
@@ -21,9 +21,10 @@ bounce100 = datadir+"/bounce100_51250925_0000.root"
 
 # Make plot of desired trajectories
 
-def trajectories(files,prefix="bounces",title="All tracks"):
+def trajectories(files,prefix="bounces",title="All tracks",zoom=None):
     """Make and save plot of all trajectories in given dataset; 'name'
-       is used for output filename, 'title' is used for plotting."""
+       is used for output filename, 'title' is used for plotting.
+       Optional zoom should be a list of lists: ((xmin,xmax),(ymin,ymax))."""
     print("Generating",prefix,"YZ trajectories",flush=True)
     
     # Zero bounce case, whole detector
@@ -32,14 +33,19 @@ def trajectories(files,prefix="bounces",title="All tracks"):
     plt.xlabel("Y [mm]")
     plt.ylabel("Z [mm]")
 
-    traj = trajectoryPlotter.getTracks(files)
-    trajectoryPlotter.drawAllYZ(traj)
-    trajectoryPlotter.trackLegend()
+    traj = tplot.getTracks(files)
+    tplot.drawAllYZ(traj)
+    if zoom is not None:
+        plt.xlim(zoom[0])
+        plt.ylim(zoom[1])
+        
+    tplot.trackLegend()
     plt.savefig(datadir+"/"+prefix+"_YZ.png")
 
 
 # Generate all three figures
 
-trajectories(bounce0,  "bounce0",  "Zero bounces (immediate absorption)")
-trajectories(bounce10, "bounce10", "10 bounces before absorption")
-trajectories(bounce100,"bounce100","100 bounces before absorption")
+tplot.debug = True
+trajectories(bounce0,"bounce0","CDMSlite Zero bounces (immediate absorption)")
+trajectories(bounce10, "bounce10", "CDMSlite 10 bounces before absorption")
+trajectories(bounce100,"bounce100","CDMSlite 100 bounces before absorption")
